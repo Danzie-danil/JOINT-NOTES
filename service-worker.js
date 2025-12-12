@@ -1,4 +1,4 @@
-const CACHE_NAME = "joint-notes-pwa-v1";
+const CACHE_NAME = "joint-notes-pwa-v2";
 const ASSETS = [
   "/",
   "/index.html",

@@ -269,10 +269,7 @@ function showMainApp() {
   setRoute("notes");
 }
 async function attemptAuthBootstrap() {
-  if (!state.supabase) {
-    attemptLocalBootstrap();
-    return;
-  }
+  if (!state.supabase) return;
   const { data } = await state.supabase.auth.getSession();
   state.session = data.session || null;
   state.user = state.session?.user || null;
@@ -314,10 +311,6 @@ async function attemptAuthBootstrap() {
    Family management and post-login init
 ========================================= */
 async function postLoginInit() {
-  if (!state.supabase) {
-    updateFamilyBadges();
-    return;
-  }
   await ensureFamilyContext();
   await loadAllData();
   bindRealtime();
@@ -351,28 +344,6 @@ async function ensureFamilyContext() {
     }
   } catch (e) {
     showToast("Failed to load families");
-  }
-}
-async function localEnsureFamilyContext() {
-  const families = lg("pwa.local.families", []);
-  const mems = lg("pwa.local.family_members", []);
-  const myMems = mems.filter((m) => m.user_id === state.user.id);
-  if (!myMems.length && state.authMode === "manager") {
-    const id = genId("fam");
-    const join_code = randomCode(10);
-    families.push({ id, name: "My Family", join_code });
-    ls("pwa.local.families", families);
-    mems.push({ family_id: id, user_id: state.user.id, role: "owner" });
-    ls("pwa.local.family_members", mems);
-  }
-  const updatedMems = lg("pwa.local.family_members", []).filter((m) => m.user_id === state.user.id);
-  state.families = lg("pwa.local.families", []).filter((f) =>
-    updatedMems.some((m) => m.family_id === f.id)
-  );
-  if (!state.familyId) state.familyId = state.families[0]?.id || null;
-  await loadMembershipRole();
-  if (!state.familyId && state.authMode === "member") {
-    openJoinByCode();
   }
 }
 function updateFamilyBadges() {
@@ -435,21 +406,6 @@ function openFamilySwitcher() {
         } catch (e) {
           showToast("Failed to create family");
         }
-      } else {
-        const families = lg("pwa.local.families", []);
-        const id = genId("fam");
-        const fam = { id, name, join_code: randomCode(10) };
-        families.push(fam);
-        ls("pwa.local.families", families);
-        const mems = lg("pwa.local.family_members", []);
-        mems.push({ family_id: id, user_id: state.user.id, role: "owner" });
-        ls("pwa.local.family_members", mems);
-        state.families = families.filter((f) => mems.some((m) => m.family_id === f.id && m.user_id === state.user.id));
-        state.familyId = id;
-        updateFamilyBadges();
-        closeOverlay(true);
-        localLoadAllData();
-        loadMembershipRole();
       }
     };
     createRow.append(nameInput, createBtn);
@@ -459,14 +415,6 @@ function openFamilySwitcher() {
 }
 
 async function loadMembershipRole() {
-  if (!state.supabase) {
-    const mems = lg("pwa.local.family_members", []);
-    const row = mems.find((m) => m.family_id === state.familyId && m.user_id === state.user.id);
-    state.currentRole = row?.role || null;
-    updateFamilyBadges();
-    updateOwnerControls();
-    return;
-  }
   try {
     const { data } = await state.supabase
       .from("family_members")
@@ -502,26 +450,14 @@ async function loadAllData() {
     loadMembers(),
   ]);
 }
-async function localLoadAllData() {
-  const fid = state.familyId;
-  state.books = lg("pwa.local.books", []).filter((x) => x.family_id === fid);
-  state.notes = lg("pwa.local.notes", []).filter((x) => x.family_id === fid);
-  state.activities = lg("pwa.local.activities", []).filter((x) => x.family_id === fid);
-  await loadMembers();
-  renderBooksScreen();
-  renderNotesScreen();
-  renderActivitiesScreen();
-}
 async function safeFetch(fn, cacheKey) {
   try {
     const res = await fn();
-    localStorage.setItem(cacheKey, JSON.stringify(res || []));
     setOfflineBanner(false);
     return res || [];
   } catch (e) {
     setOfflineBanner(true);
-    const cached = localStorage.getItem(cacheKey);
-    return cached ? JSON.parse(cached) : [];
+    return [];
   }
 }
 async function loadBooks() {
@@ -564,16 +500,6 @@ async function loadActivities() {
   renderActivitiesScreen();
 }
 async function loadMembers() {
-  if (!state.supabase) {
-    const mems = lg("pwa.local.family_members", []).filter((m) => m.family_id === state.familyId);
-    const users = lg("pwa.local.users", []);
-    state.members = mems.map((m) => {
-      const u = users.find((x) => x.id === m.user_id) || { id: m.user_id, display_name: m.user_id };
-      return { id: u.id, display_name: u.display_name || u.email || u.id };
-    });
-    renderChatScreen();
-    return;
-  }
   const members = await safeFetch(async () => {
     const { data, error } = await state.supabase
       .from("profiles")
@@ -693,44 +619,6 @@ function genId(prefix = "id") {
   if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
   return `${prefix}_${Math.random().toString(36).slice(2)}`;
 }
-function lg(key, def = []) {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : def;
-  } catch {
-    return def;
-  }
-}
-function ls(key, val) {
-  try {
-    localStorage.setItem(key, JSON.stringify(val));
-  } catch {}
-}
-function getNoteReactions(noteId) {
-  const recs = lg("pwa.local.note_reactions", []);
-  const counts = { "👍": 0, "👎": 0, "❤️": 0 };
-  recs.filter((r) => r.note_id === noteId).forEach((r) => {
-    if (counts[r.emoji] !== undefined) counts[r.emoji]++;
-  });
-  return counts;
-}
-function getMyNoteReaction(noteId) {
-  const recs = lg("pwa.local.note_reactions", []);
-  const r = recs.find((x) => x.note_id === noteId && x.user_id === (state.user?.id || "anon"));
-  return r?.emoji || null;
-}
-function setMyNoteReaction(noteId, emoji) {
-  const userId = state.user?.id || "anon";
-  const recs = lg("pwa.local.note_reactions", []);
-  const idx = recs.findIndex((x) => x.note_id === noteId && x.user_id === userId);
-  if (idx >= 0) {
-    if (recs[idx].emoji === emoji) recs.splice(idx, 1);
-    else recs[idx].emoji = emoji;
-  } else {
-    recs.push({ id: genId("react"), note_id: noteId, user_id: userId, emoji });
-  }
-  ls("pwa.local.note_reactions", recs);
-}
 
 /* =========================================
    Notes screen
@@ -804,21 +692,6 @@ async function openNoteDetail(note, opts = {}) {
 async function loadParagraphs(noteId) {
   const box = qs("#paragraphs");
   box.innerHTML = "";
-  if (!state.supabase) {
-    const paras = lg("pwa.local.paragraphs", [])
-      .filter((p) => p.note_id === noteId)
-      .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-    (paras || []).forEach((p) => {
-      const wrap = el("div", "paragraph");
-      const body = el("div");
-      body.innerHTML = p.content_html;
-      const signature = el("span", "note-author-signature");
-      signature.textContent = ` — ${p.author_name || "Unknown"}`;
-      wrap.append(body, signature);
-      box.appendChild(wrap);
-    });
-    return;
-  }
   try {
     const { data, error } = await state.supabase
       .from("paragraphs")
@@ -854,23 +727,6 @@ async function saveParagraph(noteId) {
   const html = qs("#editorInput").innerHTML.trim();
   if (!html) {
     showToast("Write something first");
-    return;
-  }
-  if (!state.supabase) {
-    const paras = lg("pwa.local.paragraphs", []);
-    paras.push({
-      id: genId("para"),
-      note_id: noteId,
-      family_id: state.familyId,
-      author_id: state.user.id,
-      author_name: state.user.user_metadata?.full_name || state.user.email,
-      content_html: html,
-      created_at: new Date().toISOString(),
-    });
-    ls("pwa.local.paragraphs", paras);
-    qs("#editorInput").innerHTML = "";
-    await loadParagraphs(noteId);
-    showToast("Paragraph added");
     return;
   }
   try {
@@ -966,68 +822,33 @@ function openNewNoteModal() {
       showToast("Title & book required");
       return;
     }
-    if (state.supabase) {
-      try {
-        const { data: note, error } = await state.supabase
-          .from("notes")
-          .insert({
-            family_id: state.familyId,
-            book_id: bookSelect.value,
-            title: inputTitle.value.trim(),
-            created_by: state.user.id,
-          })
-          .select()
-          .single();
-        if (error) throw error;
-        if (firstPara.innerHTML.trim()) {
-          await state.supabase.from("paragraphs").insert({
-            note_id: note.id,
-            family_id: state.familyId,
-            author_id: state.user.id,
-            author_name: state.user.user_metadata?.full_name || state.user.email,
-            content_html: firstPara.innerHTML.trim(),
-          });
-        }
-        host.classList.add("hidden"); host.innerHTML = "";
-        await loadNotes();
-        openNoteDetail(note);
-        showToast("Note created");
-      } catch {
-        showToast("Failed to create note");
-      }
-    } else {
-      if (!state.familyId) { showToast("Create/select a family first"); return; }
-      const notes = lg("pwa.local.notes", []);
-      const id = genId("note");
-      const preview = truncateLines(firstPara.innerHTML.trim(), 5);
-      const note = {
-        id,
-        family_id: state.familyId,
-        book_id: bookSelect.value,
-        title: inputTitle.value.trim(),
-        created_by: state.user.id,
-        preview,
-        created_at: new Date().toISOString(),
-      };
-      notes.unshift(note);
-      ls("pwa.local.notes", notes);
+    try {
+      const { data: note, error } = await state.supabase
+        .from("notes")
+        .insert({
+          family_id: state.familyId,
+          book_id: bookSelect.value,
+          title: inputTitle.value.trim(),
+          created_by: state.user.id,
+        })
+        .select()
+        .single();
+      if (error) throw error;
       if (firstPara.innerHTML.trim()) {
-        const paras = lg("pwa.local.paragraphs", []);
-        paras.push({
-          id: genId("para"),
-          note_id: id,
+        await state.supabase.from("paragraphs").insert({
+          note_id: note.id,
           family_id: state.familyId,
           author_id: state.user.id,
           author_name: state.user.user_metadata?.full_name || state.user.email,
           content_html: firstPara.innerHTML.trim(),
-          created_at: new Date().toISOString(),
         });
-        ls("pwa.local.paragraphs", paras);
       }
       host.classList.add("hidden"); host.innerHTML = "";
-      await localLoadAllData();
+      await loadNotes();
       openNoteDetail(note);
       showToast("Note created");
+    } catch {
+      showToast("Failed to create note");
     }
   };
 }
@@ -1090,24 +911,8 @@ function openBookDetail(book) {
     const title = el("div", "title");
     title.textContent = note.title;
     const prev = el("div", "preview");
-    prev.textContent = state.supabase ? "Loading preview…" : (note.preview || "—");
+    prev.textContent = "Loading preview…";
     item.append(title, prev);
-    const reactionsWrap = el("div");
-    function renderBar() {
-      reactionsWrap.innerHTML = "";
-      const bar = el("div", "reaction-bar");
-      const counts = getNoteReactions(note.id);
-      ["👍", "👎", "❤️"].forEach((em) => {
-        const btn = el("button", "icon-btn");
-        const mine = getMyNoteReaction(note.id) === em ? " • You" : "";
-        btn.textContent = `${em} ${counts[em] || 0}${mine}`;
-        btn.onclick = () => { setMyNoteReaction(note.id, em); renderBar(); };
-        bar.appendChild(btn);
-      });
-      reactionsWrap.appendChild(bar);
-    }
-    renderBar();
-    item.appendChild(reactionsWrap);
     list.appendChild(item);
     if (state.supabase) {
       state.supabase
@@ -1148,37 +953,17 @@ function openCreateBookModal() {
       showToast("Title is required");
       return;
     }
-    if (state.supabase) {
-      try {
-        await state.supabase.from("books").insert({
-          family_id: state.familyId,
-          title: inputTitle.value.trim(),
-          description: inputDesc.value.trim(),
-        });
-        host.classList.add("hidden"); host.innerHTML = "";
-        await loadBooks();
-        showToast("Book created");
-      } catch {
-        showToast("Failed to create book");
-      }
-    } else {
-      if (!state.familyId) {
-        showToast("Create/select a family first");
-        return;
-      }
-      const books = lg("pwa.local.books", []);
-      const id = genId("book");
-      books.unshift({
-        id,
+    try {
+      await state.supabase.from("books").insert({
         family_id: state.familyId,
         title: inputTitle.value.trim(),
         description: inputDesc.value.trim(),
-        created_at: new Date().toISOString(),
       });
-      ls("pwa.local.books", books);
       host.classList.add("hidden"); host.innerHTML = "";
-      await localLoadAllData();
+      await loadBooks();
       showToast("Book created");
+    } catch {
+      showToast("Failed to create book");
     }
   };
 }
@@ -1256,31 +1041,6 @@ async function openActivityDetail(a) {
       };
       linked.appendChild(b);
     });
-  } else {
-    const ans = lg("pwa.local.activity_notes", []);
-    const abs = lg("pwa.local.activity_books", []);
-    ans.filter((x) => x.activity_id === a.id).forEach(({ note_id }) => {
-      const n = state.notes.find((x) => x.id === note_id);
-      if (!n) return;
-      const b = el("button", "drawer-item");
-      b.textContent = `Note: ${n.title}`;
-      b.onclick = () => {
-        setRoute("notes");
-        openNoteDetail(n);
-      };
-      linked.appendChild(b);
-    });
-    abs.filter((x) => x.activity_id === a.id).forEach(({ book_id }) => {
-      const bdata = state.books.find((x) => x.id === book_id);
-      if (!bdata) return;
-      const b = el("button", "drawer-item");
-      b.textContent = `Book: ${bdata.title}`;
-      b.onclick = () => {
-        setRoute("books");
-        openBookDetail(bdata);
-      };
-      linked.appendChild(b);
-    });
   }
   qs("#btnCloseActivity").onclick = () => { qs("#activityDetail").classList.add("hidden"); history.back(); };
 }
@@ -1328,69 +1088,37 @@ function openCreateActivityModal() {
       showToast("Title & date/time required");
       return;
     }
-    if (state.supabase) {
-      try {
-        const { data: a, error } = await state.supabase
-          .from("activities")
-          .insert({
-            family_id: state.familyId,
-            title: inputTitle.value.trim(),
-            description: inputDesc.value.trim(),
-            datetime: new Date(inputDate.value).toISOString(),
-            location: inputLoc.value.trim(),
-          })
-          .select()
-          .single();
-        if (error) throw error;
-        const notesSel = Array.from(notePick.selectedOptions).map((o) => o.value);
-        const booksSel = Array.from(bookPick.selectedOptions).map((o) => o.value);
-        if (notesSel.length) {
-          await state.supabase.from("activity_notes").insert(
-            notesSel.map((note_id) => ({ activity_id: a.id, note_id }))
-          );
-        }
-        if (booksSel.length) {
-          await state.supabase.from("activity_books").insert(
-            booksSel.map((book_id) => ({ activity_id: a.id, book_id }))
-          );
-        }
-        host.classList.add("hidden"); host.innerHTML = "";
-        await loadActivities();
-        openActivityDetail(a);
-        showToast("Activity created");
-      } catch {
-        showToast("Failed to create activity");
-      }
-    } else {
-      const activities = lg("pwa.local.activities", []);
-      const id = genId("activity");
-      activities.unshift({
-        id,
-        family_id: state.familyId,
-        title: inputTitle.value.trim(),
-        description: inputDesc.value.trim(),
-        datetime: new Date(inputDate.value).toISOString(),
-        location: inputLoc.value.trim(),
-        created_at: new Date().toISOString(),
-      });
-      ls("pwa.local.activities", activities);
+    try {
+      const { data: a, error } = await state.supabase
+        .from("activities")
+        .insert({
+          family_id: state.familyId,
+          title: inputTitle.value.trim(),
+          description: inputDesc.value.trim(),
+          datetime: new Date(inputDate.value).toISOString(),
+          location: inputLoc.value.trim(),
+        })
+        .select()
+        .single();
+      if (error) throw error;
       const notesSel = Array.from(notePick.selectedOptions).map((o) => o.value);
       const booksSel = Array.from(bookPick.selectedOptions).map((o) => o.value);
       if (notesSel.length) {
-        const ans = lg("pwa.local.activity_notes", []);
-        notesSel.forEach((note_id) => ans.push({ activity_id: id, note_id }));
-        ls("pwa.local.activity_notes", ans);
+        await state.supabase.from("activity_notes").insert(
+          notesSel.map((note_id) => ({ activity_id: a.id, note_id }))
+        );
       }
       if (booksSel.length) {
-        const abs = lg("pwa.local.activity_books", []);
-        booksSel.forEach((book_id) => abs.push({ activity_id: id, book_id }));
-        ls("pwa.local.activity_books", abs);
+        await state.supabase.from("activity_books").insert(
+          booksSel.map((book_id) => ({ activity_id: a.id, book_id }))
+        );
       }
       host.classList.add("hidden"); host.innerHTML = "";
-      await localLoadAllData();
-      const a = activities[0];
+      await loadActivities();
       openActivityDetail(a);
       showToast("Activity created");
+    } catch {
+      showToast("Failed to create activity");
     }
   };
 }
@@ -1458,12 +1186,9 @@ async function loadConversation(peerId) {
     .or(`and(sender_id.eq.${state.user.id},receiver_id.eq.${peerId}),and(sender_id.eq.${peerId},receiver_id.eq.${state.user.id})`)
     .order("created_at", { ascending: true });
   if (error) {
-    const cached = localStorage.getItem(STORAGE_KEYS.cacheMessages(state.familyId, peerId));
-    const msgs = cached ? JSON.parse(cached) : [];
-    renderConversation(peerId, msgs);
+    renderConversation(peerId, []);
     return;
   }
-  localStorage.setItem(STORAGE_KEYS.cacheMessages(state.familyId, peerId), JSON.stringify(data || []));
   renderConversation(peerId, data || []);
 }
 function renderConversation(peerId, messages) {
@@ -1906,21 +1631,6 @@ function openCreateFamily() {
         } catch {
           showToast("Failed to create family");
         }
-      } else {
-        const families = lg("pwa.local.families", []);
-        const id = genId("fam");
-        const fam = { id, name, join_code: randomCode(10) };
-        families.push(fam);
-        ls("pwa.local.families", families);
-        const mems = lg("pwa.local.family_members", []);
-        mems.push({ family_id: id, user_id: state.user.id, role: "owner" });
-        ls("pwa.local.family_members", mems);
-        state.families = families.filter((f) => mems.some((m) => m.family_id === f.id && m.user_id === state.user.id));
-        state.familyId = id;
-        updateFamilyBadges();
-        closeOverlay(true);
-        localLoadAllData();
-        loadMembershipRole();
       }
     };
   }, true);
@@ -2072,26 +1782,10 @@ async function bootstrapSupabase() {
   const ok = await tryFetchConfig();
   if (ok) return true;
   showAuthScreen();
-  showToast("Local mode: sign in without Supabase");
   return false;
 }
 
-function attemptLocalBootstrap() {
-  try {
-    const raw = localStorage.getItem("pwa.local.session");
-    const sess = raw ? JSON.parse(raw) : null;
-    state.session = sess;
-    state.user = sess?.user || null;
-    if (state.user) {
-      showMainApp();
-      postLoginInit();
-    } else {
-      showAuthScreen();
-    }
-  } catch {
-    showAuthScreen();
-  }
-}
+/* local bootstrap removed */
 
 function escapeHtml(str) {
   return (str || "")
