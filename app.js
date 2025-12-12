@@ -485,11 +485,10 @@ function openFamilySwitcher() {
             .select("id,name,join_code")
             .single();
           if (error) throw error;
-          try {
-            await state.supabase
-              .from("family_members")
-              .insert({ family_id: famRow.id, user_id: state.user.id, role: "owner" });
-          } catch {}
+          const { error: memberErr } = await state.supabase
+            .from("family_members")
+            .insert({ family_id: famRow.id, user_id: state.user.id, role: "owner" });
+          if (memberErr) throw memberErr;
           state.families.push(famRow);
           state.familyId = famRow.id;
           localStorage.setItem(STORAGE_KEYS.lastFamily, famRow.id);
@@ -499,7 +498,8 @@ function openFamilySwitcher() {
           rebindRealtime();
           loadMembershipRole();
         } catch (e) {
-          showToast("Failed to create family");
+          console.error(e);
+          showToast(e.message || "Failed to create family");
         }
       }
     };
@@ -1065,8 +1065,9 @@ async function loadParagraphs(noteId) {
       wrap.append(body, signature, actions);
       box.appendChild(wrap);
     });
-  } catch {
-    showToast("Failed to load paragraphs");
+  } catch (e) {
+    console.error(e);
+    showToast(e.message || "Failed to load paragraphs");
   }
 }
 async function saveParagraph(noteId) {
@@ -1089,7 +1090,8 @@ async function saveParagraph(noteId) {
     await loadParagraphs(noteId);
     showToast("Paragraph added");
   } catch (e) {
-    showToast("Failed to save paragraph");
+    console.error(e);
+    showToast(e.message || "Failed to save paragraph");
   }
 }
 function editParagraph(p) {
@@ -1118,8 +1120,9 @@ function editParagraph(p) {
         closeOverlay(true);
         showToast("Updated");
         await loadParagraphs(p.note_id);
-      } catch {
-        showToast("Permission denied or failed");
+      } catch (e) {
+        console.error(e);
+        showToast(e.message || "Permission denied or failed");
       }
     };
   }, true);
@@ -1135,8 +1138,9 @@ async function deleteParagraph(p) {
     if (error) throw error;
     showToast("Deleted");
     await loadParagraphs(p.note_id);
-  } catch {
-    showToast("Permission denied or failed");
+  } catch (e) {
+    console.error(e);
+    showToast(e.message || "Permission denied or failed");
   }
 }
 
@@ -1198,8 +1202,9 @@ async function openNewNoteModal() {
       openNoteDetail(note);
       showToast("Note created");
       try { state.usage.notesCreated = (state.usage.notesCreated || 0) + 1; localStorage.setItem("pwa.usage", JSON.stringify(state.usage)); } catch {}
-    } catch {
-      showToast("Failed to create note");
+    } catch (e) {
+      console.error(e);
+      showToast(e.message || "Failed to create note");
     }
   };
 }
@@ -1384,8 +1389,9 @@ function openCreateBookModal() {
       await loadBooks();
       showToast("Book created");
       try { state.usage.booksCreated = (state.usage.booksCreated || 0) + 1; localStorage.setItem("pwa.usage", JSON.stringify(state.usage)); } catch {}
-    } catch {
-      showToast("Failed to create book");
+    } catch (e) {
+      console.error(e);
+      showToast(e.message || "Failed to create book");
     }
   };
 }
@@ -1607,8 +1613,9 @@ function openCreateActivityModal() {
       openActivityDetail(a);
       showToast("Activity created");
       try { state.usage.activitiesCreated = (state.usage.activitiesCreated || 0) + 1; localStorage.setItem("pwa.usage", JSON.stringify(state.usage)); } catch {}
-    } catch {
-      showToast("Failed to create activity");
+    } catch (e) {
+      console.error(e);
+      showToast(e.message || "Failed to create activity");
     }
   };
 }
