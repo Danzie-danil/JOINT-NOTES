@@ -1564,6 +1564,30 @@ async function exportProfileData() {
   }
 }
 
+async function doLogout() {
+  try {
+    if (state.supabase) {
+      await state.supabase.auth.signOut();
+    }
+  } catch {}
+  try {
+    state.subscriptions.forEach((c) => c.unsubscribe && c.unsubscribe());
+  } catch {}
+  state.subscriptions = [];
+  localStorage.removeItem("pwa.local.session");
+  state.session = null;
+  state.user = null;
+  state.familyId = null;
+  state.families = [];
+  state.books = [];
+  state.notes = [];
+  state.activities = [];
+  state.members = [];
+  state.currentRole = null;
+  showAuthScreen();
+  showToast("Signed out");
+}
+
 /* =========================================
    Event bindings
 ========================================= */
@@ -1609,6 +1633,8 @@ function bindUI() {
     setAuthMode(state.authMode === "member" ? "manager" : "member");
     closeDrawer();
   };
+  const logoutBtn = qs("#btnLogout");
+  if (logoutBtn) logoutBtn.onclick = async () => { await doLogout(); closeDrawer(); };
   // Auth
   const loginForm = qs("#authLoginForm");
   if (loginForm) loginForm.onsubmit = async (e) => {
