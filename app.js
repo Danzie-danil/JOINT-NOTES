@@ -44,6 +44,7 @@ const STORAGE_KEYS = {
   cacheActivities: (familyId) => `pwa.cache.activities.${familyId}`,
   cacheMembers: (familyId) => `pwa.cache.members.${familyId}`,
   cacheMessages: (familyId, peerId) => `pwa.cache.messages.${familyId}.${peerId}`,
+  lastFamily: "pwa.last.family",
 };
 
 /* =========================================
@@ -331,9 +332,12 @@ async function ensureFamilyContext() {
       );
     if (error) throw error;
     state.families = families || [];
+    const last = localStorage.getItem(STORAGE_KEYS.lastFamily);
     if (!state.familyId) {
-      state.familyId = state.families[0]?.id || null;
+      const hasLast = last && state.families.some((f) => f.id === last);
+      state.familyId = hasLast ? last : (state.families[0]?.id || null);
     }
+    if (state.familyId) localStorage.setItem(STORAGE_KEYS.lastFamily, state.familyId);
     updateFamilyBadges();
     if (state.familyId && state.user) {
       await loadMembershipRole();
@@ -365,6 +369,7 @@ function openFamilySwitcher() {
       item.textContent = fam.name;
       item.onclick = () => {
         state.familyId = fam.id;
+        localStorage.setItem(STORAGE_KEYS.lastFamily, fam.id);
         updateFamilyBadges();
         closeOverlay(true);
         loadAllData();
@@ -397,6 +402,7 @@ function openFamilySwitcher() {
           } catch {}
           state.families.push(famRow);
           state.familyId = famRow.id;
+          localStorage.setItem(STORAGE_KEYS.lastFamily, famRow.id);
           updateFamilyBadges();
           closeOverlay(true);
           loadAllData();
@@ -1645,6 +1651,7 @@ function openCreateFamily() {
           } catch {}
           state.families.push(famRow);
           state.familyId = famRow.id;
+          localStorage.setItem(STORAGE_KEYS.lastFamily, famRow.id);
           updateFamilyBadges();
           closeOverlay(true);
           loadAllData();
