@@ -451,7 +451,9 @@ async function safeFetch(fn, cacheKey) {
     setOfflineBanner(false);
     return res || [];
   } catch (e) {
-    setOfflineBanner(true);
+    const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+    setOfflineBanner(offline);
+    if (!offline) showToast("Failed to load data");
     return [];
   }
 }
