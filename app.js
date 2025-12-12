@@ -34,6 +34,24 @@ const state = {
   overlayPrevHeader: null,
   currentRole: null,
   authMode: localStorage.getItem("pwa.auth.mode") || "member",
+  pagination: {
+    books: { page: 0, pageSize: 20, hasMore: true, term: "" },
+    notes: { page: 0, pageSize: 20, hasMore: true, term: "" },
+    activities: { page: 0, pageSize: 20, hasMore: true, term: "" },
+    conversation: { page: 0, pageSize: 30, hasMore: true },
+  },
+  conversationMessages: [],
+  bookDetailNotes: [],
+  bookDetailPagination: { page: 0, pageSize: 20, hasMore: true, bookId: null },
+  perf: { logs: [] },
+  loadingOlderMessages: false,
+  loadingMore: false,
+  errors: [],
+  longTasks: [],
+  usage: { booksCreated: 0, notesCreated: 0, activitiesCreated: 0 },
+  filters: { notesTags: [], booksTags: [], activitiesTags: [] },
+  typingPeers: {},
+  presenceChannels: {},
 };
 
 const STORAGE_KEYS = {
@@ -45,6 +63,15 @@ const STORAGE_KEYS = {
   cacheMembers: (familyId) => `pwa.cache.members.${familyId}`,
   cacheMessages: (familyId, peerId) => `pwa.cache.messages.${familyId}.${peerId}`,
   lastFamily: "pwa.last.family",
+  pinsNotes: (familyId) => `pwa.pins.notes.${familyId}`,
+  pinsBooks: (familyId) => `pwa.pins.books.${familyId}`,
+  pinsActivities: (familyId) => `pwa.pins.activities.${familyId}`,
+  queueMessages: (familyId, userId) => `pwa.queue.messages.${familyId}.${userId}`,
+  tagsNotes: (familyId) => `pwa.tags.notes.${familyId}`,
+  tagsBooks: (familyId) => `pwa.tags.books.${familyId}`,
+  tagsActivities: (familyId) => `pwa.tags.activities.${familyId}`,
+  rsvpActivity: (familyId, activityId) => `pwa.rsvp.${familyId}.${activityId}`,
+  remindersActivities: (familyId) => `pwa.reminders.activities.${familyId}`,
 };
 
 /* =========================================
@@ -195,6 +222,10 @@ window.addEventListener("popstate", () => {
    Router / navigation
 ========================================= */
 function setRoute(name) {
+  if (!state.user && name !== "auth") {
+    showAuthScreen();
+    return;
+  }
   state.route = name;
   qsa(".screen").forEach((s) => s.classList.remove("screen--active"));
   qs(`#screen-${name}`).classList.add("screen--active");
@@ -206,6 +237,8 @@ function setRoute(name) {
   if (idx >= 0 && root) {
     root.style.setProperty("--tab-x", `${idx * 100}%`);
   }
+  updatePagerBar();
+  preloadRoutes();
 }
 
 /* =========================================
@@ -285,6 +318,7 @@ async function attemptAuthBootstrap() {
       await joinFamilyByCode(pending);
       localStorage.removeItem("pwa.pendingJoinCode");
     }
+    startSessionPoll();
   }
   state.supabase.auth.onAuthStateChange((evt, session) => {
     state.session = session || null;
@@ -302,6 +336,7 @@ async function attemptAuthBootstrap() {
           localStorage.removeItem("pwa.pendingJoinCode");
         });
       }
+      startSessionPoll();
     } else {
       showAuthScreen();
     }
@@ -315,27 +350,48 @@ async function postLoginInit() {
   await ensureFamilyContext();
   await loadAllData();
   bindRealtime();
+  await checkRouteLink();
+  preloadRoutes();
 }
 async function ensureFamilyContext() {
   try {
-    const { data: families, error } = await state.supabase
-      .from("families")
-      .select("id,name")
-      .in(
-        "id",
-        (
-          await state.supabase
-            .from("family_members")
-            .select("family_id")
-            .eq("user_id", state.user.id)
-        ).data?.map((x) => x.family_id) || []
-      );
-    if (error) throw error;
+    const { data: memRows, error: memErr } = await state.supabase
+      .from("family_members")
+      .select("family_id")
+      .eq("user_id", state.user.id);
+    if (memErr) throw memErr;
+    const ids = (memRows || []).map((x) => x.family_id);
+    state.debug = state.debug || {};
+    state.debug.membershipIds = ids;
+    let families = [];
+    if (ids.length > 0) {
+      const { data, error } = await state.supabase
+        .from("families")
+        .select("id,name")
+        .in("id", ids);
+      if (error) throw error;
+      families = data || [];
+    } else {
+      try {
+        const { data } = await state.supabase
+          .from("families")
+          .select("id,name")
+          .order("name", { ascending: true })
+          .limit(50);
+        families = data || [];
+      } catch {
+        families = [];
+      }
+    }
     state.families = families || [];
     const last = localStorage.getItem(STORAGE_KEYS.lastFamily);
+    const urlFam = new URLSearchParams(location.search).get("family");
+    state.debug.lastFamilyKey = last;
+    state.debug.urlFamilyParam = urlFam;
     if (!state.familyId) {
-      const hasLast = last && state.families.some((f) => f.id === last);
-      state.familyId = hasLast ? last : (state.families[0]?.id || null);
+      const hasUrl = urlFam && state.families.some((f) => String(f.id) === String(urlFam));
+      const hasLast = last && state.families.some((f) => String(f.id) === String(last));
+      state.familyId = hasUrl ? urlFam : hasLast ? last : (state.families[0]?.id || null);
     }
     if (state.familyId) localStorage.setItem(STORAGE_KEYS.lastFamily, state.familyId);
     updateFamilyBadges();
@@ -378,6 +434,40 @@ function openFamilySwitcher() {
       };
       list.appendChild(item);
     });
+    const idRow = el("div"); idRow.style.display = "grid"; idRow.style.gap = "8px"; idRow.style.marginTop = "8px";
+    const idInput = el("input"); idInput.placeholder = "Enter family ID";
+    const setBtn = el("button", "primary-btn"); setBtn.textContent = "Set Current Family";
+    const reloadBtn = el("button", "icon-btn"); reloadBtn.textContent = "Reload List";
+    setBtn.onclick = async () => {
+      const id = idInput.value.trim();
+      if (!id) { showToast("Enter an ID"); return; }
+      let fam = (state.families || []).find((f) => String(f.id) === String(id));
+      if (!fam && state.supabase) {
+        try {
+          const { data } = await state.supabase.from("families").select("id,name,join_code").eq("id", id).single();
+          if (data) {
+            fam = data;
+            if (!(state.families || []).some((f) => String(f.id) === String(id))) {
+              state.families.push(data);
+            }
+          }
+        } catch {}
+      }
+      state.familyId = id;
+      localStorage.setItem(STORAGE_KEYS.lastFamily, id);
+      updateFamilyBadges();
+      closeOverlay(true);
+      await loadAllData();
+      rebindRealtime();
+      await loadMembershipRole();
+      showToast("Family set");
+    };
+    reloadBtn.onclick = async () => {
+      await ensureFamilyContext();
+      closeOverlay(true);
+      openFamilySwitcher();
+    };
+    idRow.append(idInput, setBtn, reloadBtn);
     const createRow = el("div"); createRow.style.display = "grid"; createRow.style.gap = "8px";
     const nameInput = el("input"); nameInput.placeholder = "New family name";
     const createBtn = el("button", "primary-btn"); createBtn.textContent = "Create New Family";
@@ -414,7 +504,7 @@ function openFamilySwitcher() {
       }
     };
     createRow.append(nameInput, createBtn);
-    card.append(list, createRow);
+    card.append(list, idRow, createRow);
     content.append(card);
   }, true);
 }
@@ -459,57 +549,120 @@ async function loadAllData() {
     renderChatScreen();
     return;
   }
-  await Promise.all([loadBooks(), loadNotes(), loadActivities(), loadMembers()]);
+  resetPagination();
+  await Promise.all([
+    loadBooks({ replace: true }),
+    loadNotes({ replace: true }),
+    loadActivities({ replace: true }),
+    loadMembers(),
+  ]);
 }
 async function safeFetch(fn, cacheKey) {
   try {
     const res = await fn();
     setOfflineBanner(false);
+    if (cacheKey) {
+      try { localStorage.setItem(cacheKey, JSON.stringify(res || [])); } catch {}
+    }
     return res || [];
   } catch (e) {
     const offline = typeof navigator !== "undefined" && navigator.onLine === false;
     setOfflineBanner(offline);
     if (!offline) showToast("Failed to load data");
+    if (cacheKey) {
+      try {
+        const raw = localStorage.getItem(cacheKey);
+        if (raw) return JSON.parse(raw);
+      } catch {}
+    }
     return [];
   }
 }
-async function loadBooks() {
+async function loadBooks(opts = {}) {
+  const p = state.pagination.books;
+  if (typeof opts.page === "number") p.page = opts.page;
+  const offset = p.page * p.pageSize;
+  const t0 = performance.now();
   const books = await safeFetch(async () => {
-    const { data, error } = await state.supabase
+    let query = state.supabase
       .from("books")
-      .select("*")
+      .select("id,title,description,family_id,created_at")
       .eq("family_id", state.familyId)
-      .order("id", { ascending: false });
+      .order("id", { ascending: false })
+      .range(offset, offset + p.pageSize - 1);
+    if (p.term) {
+      const t = `%${p.term}%`;
+      query = query.or(`ilike(title,${t}),ilike(description,${t})`);
+    }
+    const { data, error } = await query;
     if (error) throw error;
     return data;
   }, STORAGE_KEYS.cacheBooks(state.familyId));
-  state.books = books;
+  if (opts.replace) {
+    state.books = books || [];
+  } else {
+    state.books = [...(state.books || []), ...(books || [])];
+  }
+  p.hasMore = (books || []).length >= p.pageSize;
+  try { state.perf.logs.push({ op: "loadBooks", count: (books || []).length, ms: Math.round(performance.now() - t0), when: Date.now() }); } catch {}
   renderBooksScreen();
 }
-async function loadNotes() {
+async function loadNotes(opts = {}) {
+  const p = state.pagination.notes;
+  if (typeof opts.page === "number") p.page = opts.page;
+  const offset = p.page * p.pageSize;
+  const t0 = performance.now();
   const notes = await safeFetch(async () => {
-    const { data, error } = await state.supabase
+    let query = state.supabase
       .from("notes")
-      .select("*")
+      .select("id,title,book_id,family_id,created_at,created_by")
       .eq("family_id", state.familyId)
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      .range(offset, offset + p.pageSize - 1);
+    if (p.term) {
+      const t = `%${p.term}%`;
+      query = query.ilike("title", t);
+    }
+    const { data, error } = await query;
     if (error) throw error;
     return data;
   }, STORAGE_KEYS.cacheNotes(state.familyId));
-  state.notes = notes;
+  if (opts.replace) {
+    state.notes = notes || [];
+  } else {
+    state.notes = [...(state.notes || []), ...(notes || [])];
+  }
+  p.hasMore = (notes || []).length >= p.pageSize;
+  try { state.perf.logs.push({ op: "loadNotes", count: (notes || []).length, ms: Math.round(performance.now() - t0), when: Date.now() }); } catch {}
   renderNotesScreen();
 }
-async function loadActivities() {
+async function loadActivities(opts = {}) {
+  const p = state.pagination.activities;
+  if (typeof opts.page === "number") p.page = opts.page;
+  const offset = p.page * p.pageSize;
+  const t0 = performance.now();
   const items = await safeFetch(async () => {
-    const { data, error } = await state.supabase
+    let query = state.supabase
       .from("activities")
-      .select("*")
+      .select("id,title,description,datetime,location,family_id,created_at")
       .eq("family_id", state.familyId)
-      .order("datetime", { ascending: false });
+      .order("datetime", { ascending: false })
+      .range(offset, offset + p.pageSize - 1);
+    if (p.term) {
+      const t = `%${p.term}%`;
+      query = query.or(`ilike(title,${t}),ilike(description,${t}),ilike(location,${t})`);
+    }
+    const { data, error } = await query;
     if (error) throw error;
     return data;
   }, STORAGE_KEYS.cacheActivities(state.familyId));
-  state.activities = items;
+  if (opts.replace) {
+    state.activities = items || [];
+  } else {
+    state.activities = [...(state.activities || []), ...(items || [])];
+  }
+  p.hasMore = (items || []).length >= p.pageSize;
+  try { state.perf.logs.push({ op: "loadActivities", count: (items || []).length, ms: Math.round(performance.now() - t0), when: Date.now() }); } catch {}
   renderActivitiesScreen();
 }
 async function loadMembers() {
@@ -601,6 +754,51 @@ function bindRealtime() {
   state.subscriptions.push(chParagraphs, chActivities, chMessages, chRequests);
 }
 
+async function subscribeChatPresence(peerId) {
+  try {
+    const key = `chat-${state.familyId}-${peerId}`;
+    if (state.presenceChannels[key]) return;
+    const ch = state.supabase.channel(key, { config: { presence: { key: state.user.id } } });
+    ch.on("presence", { event: "sync" }, () => {
+      const s = ch.presenceState();
+      const typing = Object.values(s || {}).some((arr) => (arr || []).some((u) => u.typing));
+      qs("#typingIndicator").textContent = typing ? "Typing…" : "";
+    });
+    const resp = await ch.subscribe((status) => {
+      if (status === "SUBSCRIBED") {
+        ch.track({ typing: false, online_at: new Date().toISOString() });
+      }
+    });
+    state.presenceChannels[key] = ch;
+    const input = qs("#messageInput");
+    if (input) {
+      input.oninput = () => {
+        const val = input.value.trim();
+        ch.track({ typing: !!val, online_at: new Date().toISOString() });
+      };
+    }
+  } catch {}
+}
+async function subscribeNotePresence(noteId) {
+  try {
+    const key = `note-${state.familyId}-${noteId}`;
+    if (state.presenceChannels[key]) return;
+    const ch = state.supabase.channel(key, { config: { presence: { key: state.user.id } } });
+    ch.on("presence", { event: "sync" }, () => {
+      const s = ch.presenceState();
+      const count = Object.keys(s || {}).length;
+      const fam = state.families.find((f) => f.id === state.familyId)?.name || "—";
+      const bc = qs("#noteBreadcrumbs"); if (bc) bc.textContent = `Family: ${fam} • Notes • Viewing: ${count}`;
+    });
+    await ch.subscribe((status) => {
+      if (status === "SUBSCRIBED") {
+        ch.track({ viewing: true, at: new Date().toISOString() });
+      }
+    });
+    state.presenceChannels[key] = ch;
+  } catch {}
+}
+
 /* =========================================
    Utilities
 ========================================= */
@@ -629,6 +827,103 @@ function firstDefined(obj, keys) {
   }
   return "";
 }
+function getPins(kind) {
+  if (!state.familyId) return new Set();
+  const key = kind === "notes" ? STORAGE_KEYS.pinsNotes(state.familyId) : kind === "books" ? STORAGE_KEYS.pinsBooks(state.familyId) : STORAGE_KEYS.pinsActivities(state.familyId);
+  try { return new Set(JSON.parse(localStorage.getItem(key) || "[]")); } catch { return new Set(); }
+}
+function togglePin(kind, id) {
+  if (!state.familyId) return;
+  const key = kind === "notes" ? STORAGE_KEYS.pinsNotes(state.familyId) : kind === "books" ? STORAGE_KEYS.pinsBooks(state.familyId) : STORAGE_KEYS.pinsActivities(state.familyId);
+  const pins = getPins(kind);
+  if (pins.has(id)) pins.delete(id); else pins.add(id);
+  try { localStorage.setItem(key, JSON.stringify(Array.from(pins))); } catch {}
+}
+function getTags(kind) {
+  if (!state.familyId) return new Map();
+  const key = kind === "notes" ? STORAGE_KEYS.tagsNotes(state.familyId) : kind === "books" ? STORAGE_KEYS.tagsBooks(state.familyId) : STORAGE_KEYS.tagsActivities(state.familyId);
+  try { return new Map(Object.entries(JSON.parse(localStorage.getItem(key) || "{}"))); } catch { return new Map(); }
+}
+function saveTags(kind, map) {
+  if (!state.familyId) return;
+  const key = kind === "notes" ? STORAGE_KEYS.tagsNotes(state.familyId) : kind === "books" ? STORAGE_KEYS.tagsBooks(state.familyId) : STORAGE_KEYS.tagsActivities(state.familyId);
+  try { localStorage.setItem(key, JSON.stringify(Object.fromEntries(map))); } catch {}
+}
+function allTags(kind) {
+  const map = getTags(kind);
+  const set = new Set();
+  Array.from(map.values()).forEach((arr) => (arr || []).forEach((t) => set.add(t)));
+  return Array.from(set).sort();
+}
+function openEditTags(kind, id, title) {
+  openOverlay(`Tags • ${title}`, (content) => {
+    const map = getTags(kind);
+    const cur = new Set(map.get(String(id)) || []);
+    try {
+      const src = kind === "notes" ? state.notes.find((x) => String(x.id) === String(id))
+        : kind === "books" ? state.books.find((x) => String(x.id) === String(id))
+        : state.activities.find((x) => String(x.id) === String(id));
+      if (src && Array.isArray(src.tags)) {
+        src.tags.forEach((t) => cur.add(t));
+      }
+    } catch {}
+    const list = el("div", "list");
+    const chips = el("div", "chip-row");
+    allTags(kind).forEach((t) => {
+      const c = el("button", "chip"); c.textContent = t;
+      c.classList.toggle("chip--active", cur.has(t));
+      c.onclick = () => { if (cur.has(t)) cur.delete(t); else cur.add(t); c.classList.toggle("chip--active"); };
+      chips.appendChild(c);
+    });
+    const input = el("input"); input.placeholder = "Add new tag";
+    const add = el("button", "icon-btn"); add.textContent = "Add";
+    add.onclick = () => {
+      const t = input.value.trim(); if (!t) return;
+      cur.add(t); input.value = "";
+      const c = el("button", "chip"); c.textContent = t; c.classList.add("chip--active");
+      c.onclick = () => { if (cur.has(t)) cur.delete(t); else cur.add(t); c.classList.toggle("chip--active"); };
+      chips.appendChild(c);
+    };
+    const actions = el("div"); actions.style.display = "flex"; actions.style.gap = "8px"; actions.style.marginTop = "8px";
+    const save = el("button", "primary-btn"); save.textContent = "Save";
+    save.onclick = () => {
+      map.set(String(id), Array.from(cur));
+      saveTags(kind, map);
+      closeOverlay(true);
+      if (kind === "notes") renderNotesScreen();
+      if (kind === "books") renderBooksScreen();
+      if (kind === "activities") renderActivitiesScreen();
+    };
+    const cancel = el("button", "icon-btn"); cancel.textContent = "Cancel"; cancel.onclick = () => closeOverlay(true);
+    actions.append(save, cancel);
+    list.append(chips, input, add, actions);
+    content.append(list);
+  }, true);
+}
+function restoreDraft(noteId) {
+  try {
+    const raw = localStorage.getItem(`pwa.draft.note.${noteId}`);
+    if (raw) qs("#editorInput").innerHTML = raw;
+    qs("#editorInput").oninput = () => {
+      try { localStorage.setItem(`pwa.draft.note.${noteId}`, qs("#editorInput").innerHTML); } catch {}
+    };
+  } catch {}
+}
+function clearDraft(noteId) {
+  try { localStorage.removeItem(`pwa.draft.note.${noteId}`); } catch {}
+}
+function updateNoteBreadcrumbs(note) {
+  const fam = state.families.find((f) => f.id === state.familyId)?.name || "—";
+  const bc = qs("#noteBreadcrumbs"); if (bc) bc.textContent = `Family: ${fam} • Notes`;
+}
+function updateBookBreadcrumbs(book) {
+  const fam = state.families.find((f) => f.id === state.familyId)?.name || "—";
+  const bc = qs("#bookBreadcrumbs"); if (bc) bc.textContent = `Family: ${fam} • Books`;
+}
+function updateActivityBreadcrumbs(a) {
+  const fam = state.families.find((f) => f.id === state.familyId)?.name || "—";
+  const bc = qs("#activityBreadcrumbs"); if (bc) bc.textContent = `Family: ${fam} • Activities`;
+}
 function randomCode(len = 8) {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let out = "";
@@ -649,11 +944,22 @@ function renderNotesScreen() {
   const hasData = (state.notes || []).length > 0;
   const emptyMsg = qs("#notesEmpty");
   if (emptyMsg) emptyMsg.classList.toggle("hidden", hasData);
+  renderTagChips("notes");
   const term = qs("#notesSearchInput")?.value?.toLowerCase() || "";
+  const pins = getPins("notes");
+  const tagFilters = state.filters.notesTags || [];
   const items = (state.notes || []).filter((n) =>
     !term ||
     (n.title?.toLowerCase().includes(term))
-  );
+  ).sort((a, b) => {
+    const ap = pins.has(a.id) ? 1 : 0;
+    const bp = pins.has(b.id) ? 1 : 0;
+    return bp - ap;
+  }).filter((n) => {
+    if (!tagFilters.length) return true;
+    const map = getTags("notes"); const arr = map.get(String(n.id)) || [];
+    return tagFilters.every((t) => arr.includes(t));
+  });
   if (!items.length && hasData) {
     const empty = el("div", "list-item skeleton");
     empty.textContent = "No notes found";
@@ -668,7 +974,12 @@ function renderNotesScreen() {
     meta.textContent = `Book: ${state.books.find((b) => b.id === note.book_id)?.title || "—"} `;
     const preview = el("div", "preview");
     preview.textContent = state.supabase ? "Loading preview…" : (note.preview || "—");
-    item.append(title, meta, preview);
+    const pin = el("button", "icon-btn");
+    pin.textContent = pins.has(note.id) ? "★" : "☆";
+    pin.onclick = (e) => { e.stopPropagation(); togglePin("notes", note.id); renderNotesScreen(); };
+    const tagBtn = el("button", "icon-btn"); tagBtn.textContent = "Tags";
+    tagBtn.onclick = (e) => { e.stopPropagation(); openEditTags("notes", note.id, note.title); };
+    item.append(title, meta, preview, pin, tagBtn);
     item.onclick = () => openNoteDetail(note, { showTitle: false });
     title.onclick = (e) => { e.stopPropagation(); openNoteDetail(note, { showTitle: true }); };
     list.appendChild(item);
@@ -687,13 +998,18 @@ function renderNotesScreen() {
         });
     }
   });
+  updatePagerBar();
 }
 async function openNoteDetail(note, opts = {}) {
   qs("#noteDetail").classList.remove("hidden");
   const showTitle = opts.showTitle !== false;
   qs("#noteTitleView").textContent = note.title;
   qs("#noteTitleView").style.display = showTitle ? "" : "none";
+  updateNoteBreadcrumbs(note);
   qs("#editorInput").innerHTML = "";
+  restoreDraft(note.id);
+  const ed = qs("#noteDetail .editor");
+  ed.style.display = opts.readonly ? "none" : "";
   await loadParagraphs(note.id);
   pushDetailState("note");
   qs("#btnSaveParagraph").onclick = () => saveParagraph(note.id);
@@ -708,6 +1024,16 @@ async function openNoteDetail(note, opts = {}) {
   qsa(".toolbar button").forEach((b) => {
     b.onclick = () => document.execCommand(b.dataset.cmd, false, null);
   });
+  subscribeNotePresence(note.id);
+  const nf = qs("#noteFileInput");
+  if (nf) {
+    nf.onchange = async () => {
+      if (!nf.files || !nf.files[0]) return;
+      const file = nf.files[0];
+      await uploadNoteAttachment(note.id, file);
+      nf.value = "";
+    };
+  }
 }
 async function loadParagraphs(noteId) {
   const box = qs("#paragraphs");
@@ -759,6 +1085,7 @@ async function saveParagraph(noteId) {
     });
     if (error) throw error;
     qs("#editorInput").innerHTML = "";
+    clearDraft(noteId);
     await loadParagraphs(noteId);
     showToast("Paragraph added");
   } catch (e) {
@@ -870,6 +1197,7 @@ async function openNewNoteModal() {
       await loadNotes();
       openNoteDetail(note);
       showToast("Note created");
+      try { state.usage.notesCreated = (state.usage.notesCreated || 0) + 1; localStorage.setItem("pwa.usage", JSON.stringify(state.usage)); } catch {}
     } catch {
       showToast("Failed to create note");
     }
@@ -885,12 +1213,23 @@ function renderBooksScreen() {
   const hasData = (state.books || []).length > 0;
   const emptyMsg = qs("#booksEmpty");
   if (emptyMsg) emptyMsg.classList.toggle("hidden", hasData);
+  renderTagChips("books");
   const term = qs("#booksSearchInput")?.value?.toLowerCase() || "";
+  const pins = getPins("books");
+  const tagFilters = state.filters.booksTags || [];
   const items = (state.books || []).filter((b) =>
     !term ||
     (b.title?.toLowerCase().includes(term)) ||
     (firstDefined(b, ["description", "desc", "summary"]).toLowerCase().includes(term))
-  );
+  ).sort((a, b) => {
+    const ap = pins.has(a.id) ? 1 : 0;
+    const bp = pins.has(b.id) ? 1 : 0;
+    return bp - ap;
+  }).filter((b) => {
+    if (!tagFilters.length) return true;
+    const map = getTags("books"); const arr = map.get(String(b.id)) || [];
+    return tagFilters.every((t) => arr.includes(t));
+  });
   if (!items.length && hasData) {
     const empty = el("div", "list-item skeleton");
     empty.textContent = "No books found";
@@ -905,7 +1244,12 @@ function renderBooksScreen() {
     meta.textContent = firstDefined(book, ["description", "desc", "summary"]) || "";
     const stat = el("div", "preview");
     stat.textContent = state.supabase ? "Loading stats…" : `${(state.notes || []).filter((n) => n.book_id === book.id).length} linked notes`;
-    item.append(title, meta, stat);
+    const pin = el("button", "icon-btn");
+    pin.textContent = pins.has(book.id) ? "★" : "☆";
+    pin.onclick = (e) => { e.stopPropagation(); togglePin("books", book.id); renderBooksScreen(); };
+    const tagBtn = el("button", "icon-btn"); tagBtn.textContent = "Tags";
+    tagBtn.onclick = (e) => { e.stopPropagation(); openEditTags("books", book.id, book.title); };
+    item.append(title, meta, stat, pin, tagBtn);
     item.onclick = () => openBookDetail(book);
     list.appendChild(item);
     if (state.supabase) {
@@ -920,16 +1264,48 @@ function renderBooksScreen() {
         });
     }
   });
+  updatePagerBar();
 }
 function openBookDetail(book) {
   qs("#bookDetail").classList.remove("hidden");
   qs("#bookTitleView").textContent = book.title;
   qs("#bookDescriptionView").textContent = firstDefined(book, ["description", "desc", "summary"]) || "";
   pushDetailState("book");
+  state.bookDetailPagination = { page: 0, pageSize: 20, hasMore: true, bookId: book.id };
+  state.bookDetailNotes = [];
+  renderBookDetailNotes();
+  loadBookNotes({ replace: true });
+  qs("#btnCloseBook").onclick = () => qs("#bookDetail").classList.add("hidden");
+  qs("#btnCloseBook").onclick = () => { qs("#bookDetail").classList.add("hidden"); history.back(); };
+}
+
+async function loadBookNotes(opts = {}) {
+  const p = state.bookDetailPagination;
+  const offset = p.page * p.pageSize;
+  const rows = await safeFetch(async () => {
+    const { data, error } = await state.supabase
+      .from("notes")
+      .select("id,title,created_at")
+      .eq("family_id", state.familyId)
+      .eq("book_id", p.bookId)
+      .order("created_at", { ascending: false })
+      .range(offset, offset + p.pageSize - 1);
+    if (error) throw error;
+    return data;
+  }, null);
+  if (opts.replace) {
+    state.bookDetailNotes = rows || [];
+  } else {
+    state.bookDetailNotes = [...(state.bookDetailNotes || []), ...(rows || [])];
+  }
+  p.hasMore = (rows || []).length >= p.pageSize;
+  renderBookDetailNotes();
+}
+
+function renderBookDetailNotes() {
   const list = qs("#bookNotesList");
   list.innerHTML = "";
-  const notes = state.notes.filter((n) => n.book_id === book.id);
-  notes.forEach((note) => {
+  (state.bookDetailNotes || []).forEach((note) => {
     const item = el("div", "list-item");
     const title = el("div", "title");
     title.textContent = note.title;
@@ -937,23 +1313,45 @@ function openBookDetail(book) {
     prev.textContent = "Loading preview…";
     item.append(title, prev);
     list.appendChild(item);
-    if (state.supabase) {
-      state.supabase
-        .from("paragraphs")
-        .select("content_html")
-        .eq("note_id", note.id)
-        .order("created_at", { ascending: true })
-        .limit(10)
-        .then(({ data }) => {
-          const join = (data || []).map((p) => truncateLines(p.content_html || "", 5)).join("\n");
-          prev.textContent = join || "No content yet";
-        }).catch(() => {
-          prev.textContent = "Preview unavailable";
-        });
-    }
+    let page = 0;
+    const fetchChunk = async () => {
+      const { data } = await state.supabase
+      .from("paragraphs")
+      .select("content_html")
+      .eq("note_id", note.id)
+      .order("created_at", { ascending: true })
+      .range(page * 10, page * 10 + 9);
+      const join = (data || []).map((p) => truncateLines(p.content_html || "", 5)).join("\n");
+      if (page === 0) {
+        prev.textContent = join || "No content yet";
+      } else {
+        prev.textContent = [prev.textContent, join].filter(Boolean).join("\n");
+      }
+      return data || [];
+    };
+    fetchChunk().catch(() => { prev.textContent = "Preview unavailable"; });
+    const more = el("button", "icon-btn");
+    more.textContent = "Load more content";
+    more.onclick = async () => {
+      page += 1;
+      const rows = await fetchChunk();
+      if (rows.length < 10) {
+        more.disabled = true;
+      }
+    };
+    item.appendChild(more);
+    item.onclick = () => openNoteDetail(note);
   });
-  qs("#btnCloseBook").onclick = () => qs("#bookDetail").classList.add("hidden");
-  qs("#btnCloseBook").onclick = () => { qs("#bookDetail").classList.add("hidden"); history.back(); };
+  const p = state.bookDetailPagination;
+  if (p.hasMore) {
+    const more = el("button", "drawer-item");
+    more.textContent = "Load more notes";
+    more.onclick = async () => {
+      p.page += 1;
+      await loadBookNotes();
+    };
+    list.appendChild(more);
+  }
 }
 function openCreateBookModal() {
   const host = qs("#booksInlineForm");
@@ -985,6 +1383,7 @@ function openCreateBookModal() {
       host.classList.add("hidden"); host.innerHTML = "";
       await loadBooks();
       showToast("Book created");
+      try { state.usage.booksCreated = (state.usage.booksCreated || 0) + 1; localStorage.setItem("pwa.usage", JSON.stringify(state.usage)); } catch {}
     } catch {
       showToast("Failed to create book");
     }
@@ -1000,13 +1399,24 @@ function renderActivitiesScreen() {
   const hasData = (state.activities || []).length > 0;
   const emptyMsg = qs("#activitiesEmpty");
   if (emptyMsg) emptyMsg.classList.toggle("hidden", hasData);
+  renderTagChips("activities");
   const term = qs("#activitiesSearchInput")?.value?.toLowerCase() || "";
+  const pins = getPins("activities");
+  const tagFilters = state.filters.activitiesTags || [];
   const items = (state.activities || []).filter((a) =>
     !term ||
     (a.title?.toLowerCase().includes(term)) ||
     (firstDefined(a, ["description", "details", "desc"]).toLowerCase().includes(term)) ||
     (a.location?.toLowerCase().includes(term))
-  );
+  ).sort((a, b) => {
+    const ap = pins.has(a.id) ? 1 : 0;
+    const bp = pins.has(b.id) ? 1 : 0;
+    return bp - ap;
+  }).filter((a) => {
+    if (!tagFilters.length) return true;
+    const map = getTags("activities"); const arr = map.get(String(a.id)) || [];
+    return tagFilters.every((t) => arr.includes(t));
+  });
   if (!items.length && hasData) {
     const empty = el("div", "list-item skeleton");
     empty.textContent = "No activities found";
@@ -1021,10 +1431,16 @@ function renderActivitiesScreen() {
     meta.textContent = `${fmtTime(a.datetime)} ${a.location ? " • " + a.location : ""}`;
     const prev = el("div", "preview");
     prev.textContent = a.description || "";
-    item.append(title, meta, prev);
+    const pin = el("button", "icon-btn");
+    pin.textContent = pins.has(a.id) ? "★" : "☆";
+    pin.onclick = (e) => { e.stopPropagation(); togglePin("activities", a.id); renderActivitiesScreen(); };
+    const tagBtn = el("button", "icon-btn"); tagBtn.textContent = "Tags";
+    tagBtn.onclick = (e) => { e.stopPropagation(); openEditTags("activities", a.id, a.title); };
+    item.append(title, meta, prev, pin, tagBtn);
     item.onclick = () => openActivityDetail(a);
     list.appendChild(item);
   });
+  updatePagerBar();
 }
 async function openActivityDetail(a) {
   qs("#activityDetail").classList.remove("hidden");
@@ -1033,6 +1449,56 @@ async function openActivityDetail(a) {
   pushDetailState("activity");
   const linked = qs("#activityLinked");
   linked.innerHTML = "";
+  const rsvpBar = el("div", "reaction-bar");
+  const going = el("button", "icon-btn"); going.textContent = "Going";
+  const maybe = el("button", "icon-btn"); maybe.textContent = "Maybe";
+  const notgo = el("button", "icon-btn"); notgo.textContent = "Not going";
+  const counts = el("div", "detail-subtitle"); counts.textContent = "RSVP: —";
+  const remind = el("button", "icon-btn"); remind.textContent = "Add reminder";
+  const refreshCounts = async () => {
+    try {
+      const { data } = await state.supabase
+        .from("activity_rsvps")
+        .select("status")
+        .eq("activity_id", a.id);
+      const stats = { going: 0, maybe: 0, not: 0 };
+      (data || []).forEach((r) => { if (r.status === "going") stats.going++; else if (r.status === "maybe") stats.maybe++; else stats.not++; });
+      counts.textContent = `RSVP: Going ${stats.going} • Maybe ${stats.maybe} • Not ${stats.not}`;
+    } catch {
+      const local = getLocalRSVP(a.id);
+      counts.textContent = `RSVP: ${local ? local.status : "—"}`;
+    }
+  };
+  const doRSVP = async (status) => {
+    try {
+      const payload = { activity_id: a.id, user_id: state.user.id, status };
+      const { error } = await state.supabase.from("activity_rsvps").upsert(payload, { onConflict: "activity_id,user_id" });
+      if (error) throw error;
+      showToast("RSVP saved");
+    } catch {
+      saveLocalRSVP(a.id, { user_id: state.user.id, status });
+      showToast("RSVP saved locally");
+    }
+    refreshCounts();
+  };
+  const openReminderPicker = () => {
+    openOverlay("Reminder", (content) => {
+      const when = el("input"); when.type = "datetime-local"; when.value = formatDateTimeLocal(new Date());
+      const actions = el("div"); actions.style.display = "flex"; actions.style.gap = "8px";
+      const save = el("button", "primary-btn"); save.textContent = "Save";
+      save.onclick = () => { saveReminder(a.id, new Date(when.value).toISOString()); closeOverlay(true); showToast("Reminder set"); };
+      const cancel = el("button", "icon-btn"); cancel.textContent = "Cancel"; cancel.onclick = () => closeOverlay(true);
+      actions.append(save, cancel);
+      content.append(when, actions);
+    }, true);
+  };
+  going.onclick = () => doRSVP("going");
+  maybe.onclick = () => doRSVP("maybe");
+  notgo.onclick = () => doRSVP("not");
+  remind.onclick = openReminderPicker;
+  rsvpBar.append(going, maybe, notgo, remind);
+  linked.append(rsvpBar, counts);
+  refreshCounts();
   if (state.supabase) {
     const notesRel = await state.supabase
       .from("activity_notes")
@@ -1140,6 +1606,7 @@ function openCreateActivityModal() {
       await loadActivities();
       openActivityDetail(a);
       showToast("Activity created");
+      try { state.usage.activitiesCreated = (state.usage.activitiesCreated || 0) + 1; localStorage.setItem("pwa.usage", JSON.stringify(state.usage)); } catch {}
     } catch {
       showToast("Failed to create activity");
     }
@@ -1201,27 +1668,53 @@ function renderChatScreen() {
     list.appendChild(empty);
   }
 }
-async function loadConversation(peerId) {
+async function loadConversation(peerId, opts = {}) {
+  const p = state.pagination.conversation;
+  if (typeof opts.page === "number") p.page = opts.page;
+  const offset = p.page * p.pageSize;
   const { data, error } = await state.supabase
     .from("messages")
     .select("*")
     .eq("family_id", state.familyId)
     .or(`and(sender_id.eq.${state.user.id},receiver_id.eq.${peerId}),and(sender_id.eq.${peerId},receiver_id.eq.${state.user.id})`)
-    .order("created_at", { ascending: true });
+    .order("created_at", { ascending: false })
+    .range(offset, offset + p.pageSize - 1);
   if (error) {
-    renderConversation(peerId, []);
-    return;
+    state.conversationMessages = [];
+  } else {
+    const fetchedAsc = (data || []).slice().reverse();
+    if (opts.replace) {
+      state.conversationMessages = fetchedAsc;
+    } else {
+      state.conversationMessages = [...fetchedAsc, ...(state.conversationMessages || [])];
+    }
+    state.pagination.conversation.hasMore = (data || []).length >= p.pageSize;
   }
-  renderConversation(peerId, data || []);
+  renderConversation(peerId);
 }
-function renderConversation(peerId, messages) {
+function renderConversation(peerId) {
   const conv = qs("#conversationView");
   conv.classList.remove("hidden");
   state.chatOpenMemberId = peerId;
   const peer = state.members.find((m) => m.id === peerId);
   qs("#conversationTitle").textContent = peer?.display_name || peerId;
+  const fam = state.families.find((f) => f.id === state.familyId)?.name || "—";
+  const bc = qs("#conversationBreadcrumbs"); if (bc) bc.textContent = `Family: ${fam} • Chat`;
   const area = qs("#messagesArea");
   area.innerHTML = "";
+  const messages = state.conversationMessages || [];
+  const loadOlder = el("button", "icon-btn"); loadOlder.textContent = "Load older";
+  loadOlder.style.marginBottom = "8px";
+  loadOlder.onclick = async () => {
+    const p = state.pagination.conversation;
+    await loadConversation(peerId, { page: p.page + 1 });
+    area.scrollTop = 0;
+  };
+  if (state.pagination.conversation.hasMore) {
+    area.appendChild(loadOlder);
+  }
+  const typingRow = el("div", "detail-subtitle"); typingRow.id = "typingIndicator";
+  area.appendChild(typingRow);
   messages.forEach((msg) => {
     const b = el("div", "bubble");
     if (msg.sender_id === state.user.id) b.classList.add("me");
@@ -1231,15 +1724,40 @@ function renderConversation(peerId, messages) {
     b.appendChild(t);
     area.appendChild(b);
   });
+  const pend = (state.pendingMessages || {})[peerId] || [];
+  pend.forEach((msg) => {
+    const b = el("div", "bubble"); b.classList.add("me");
+    b.innerHTML = linkify(msg.content || "");
+    const t = el("div", "time"); t.textContent = "Pending";
+    b.appendChild(t);
+    area.appendChild(b);
+  });
+  subscribeChatPresence(peerId);
+  const cf = qs("#chatFileInput");
+  if (cf) {
+    cf.onchange = async () => {
+      if (!cf.files || !cf.files[0]) return;
+      const file = cf.files[0];
+      await uploadChatAttachment(peerId, file);
+      cf.value = "";
+    };
+  }
   area.scrollTop = area.scrollHeight;
   const latestBtn = qs("#btnScrollLatest");
   if (latestBtn) {
     latestBtn.onclick = () => {
       area.scrollTop = area.scrollHeight;
     };
-    area.onscroll = () => {
+    area.onscroll = async () => {
       const nearBottom = area.scrollHeight - area.scrollTop - area.clientHeight < 40;
       latestBtn.style.display = nearBottom ? "none" : "inline-block";
+      const nearTop = area.scrollTop < 20;
+      if (nearTop && state.pagination.conversation.hasMore && !state.loadingOlderMessages) {
+        state.loadingOlderMessages = true;
+        const p = state.pagination.conversation;
+        await loadConversation(peerId, { page: p.page + 1 });
+        state.loadingOlderMessages = false;
+      }
     };
     latestBtn.style.display = "none";
   }
@@ -1251,24 +1769,76 @@ function renderConversation(peerId, messages) {
 function openConversation(peerId, name) {
   setRoute("chat");
   pushDetailState("conversation");
-  loadConversation(peerId);
+  state.pagination.conversation = { page: 0, pageSize: 30, hasMore: true };
+  loadConversation(peerId, { replace: true, page: 0 });
 }
 async function sendMessage() {
   const input = qs("#messageInput");
   const content = input.value.trim();
   if (!content || !state.chatOpenMemberId) return;
   try {
-    const { error } = await state.supabase.from("messages").insert({
-      family_id: state.familyId,
-      sender_id: state.user.id,
-      receiver_id: state.chatOpenMemberId,
-      content,
-    });
-    if (error) throw error;
-    input.value = "";
-    await loadConversation(state.chatOpenMemberId);
+    if (!state.online || !state.supabase) {
+      enqueueMessage(state.chatOpenMemberId, content);
+      input.value = "";
+      renderConversation(state.chatOpenMemberId);
+      showToast("Queued");
+    } else {
+      const { error } = await state.supabase.from("messages").insert({
+        family_id: state.familyId,
+        sender_id: state.user.id,
+        receiver_id: state.chatOpenMemberId,
+        content,
+      });
+      if (error) throw error;
+      input.value = "";
+      await loadConversation(state.chatOpenMemberId, { replace: true, page: 0 });
+    }
   } catch {
-    showToast("Failed to send");
+    enqueueMessage(state.chatOpenMemberId, content);
+    input.value = "";
+    renderConversation(state.chatOpenMemberId);
+    showToast("Queued");
+  }
+}
+
+async function uploadNoteAttachment(noteId, file) {
+  if (!state.supabase) { showToast("Storage not configured"); return; }
+  try {
+    const path = `${state.familyId}/notes/${noteId}/${Date.now()}_${file.name}`;
+    const { error } = await state.supabase.storage.from("attachments").upload(path, file, { upsert: false });
+    if (error) throw error;
+    const { data } = state.supabase.storage.from("attachments").getPublicUrl(path);
+    const url = data?.publicUrl || "";
+    const html = `<p><a href="${url}" target="_blank" rel="noopener">Attachment: ${file.name}</a></p>`;
+    const { error: err2 } = await state.supabase.from("paragraphs").insert({
+      note_id: noteId, family_id: state.familyId, author_id: state.user.id,
+      author_name: state.user.user_metadata?.full_name || state.user.email,
+      content_html: html,
+    });
+    if (err2) throw err2;
+    await loadParagraphs(noteId);
+    showToast("Attachment added");
+  } catch {
+    showToast("Upload failed");
+  }
+}
+async function uploadChatAttachment(peerId, file) {
+  if (!state.supabase) { showToast("Storage not configured"); return; }
+  try {
+    const path = `${state.familyId}/chat/${state.user.id}/${Date.now()}_${file.name}`;
+    const { error } = await state.supabase.storage.from("attachments").upload(path, file, { upsert: false });
+    if (error) throw error;
+    const { data } = state.supabase.storage.from("attachments").getPublicUrl(path);
+    const url = data?.publicUrl || "";
+    const content = `[Attachment] ${file.name} ${url}`;
+    const { error: err2 } = await state.supabase.from("messages").insert({
+      family_id: state.familyId, sender_id: state.user.id, receiver_id: peerId, content,
+    });
+    if (err2) throw err2;
+    await loadConversation(peerId, { replace: true, page: 0 });
+    showToast("Attachment sent");
+  } catch {
+    showToast("Upload failed");
   }
 }
 
@@ -1282,6 +1852,123 @@ async function doRefresh() {
     await loadConversation(state.chatOpenMemberId);
   }
   showToast("Data refreshed");
+}
+
+function resetPagination() {
+  state.pagination = {
+    books: { page: 0, pageSize: 20, hasMore: true, term: "" },
+    notes: { page: 0, pageSize: 20, hasMore: true, term: "" },
+    activities: { page: 0, pageSize: 20, hasMore: true, term: "" },
+    conversation: { page: 0, pageSize: 30, hasMore: true },
+  };
+}
+
+function updatePagerBar() {
+  const bar = qs("#pagerBar");
+  const btn = qs("#btnLoadMore");
+  if (!bar || !btn) return;
+  const route = state.route;
+  let hasMore = false;
+  if (route === "books") hasMore = !!state.pagination.books.hasMore;
+  else if (route === "notes") hasMore = !!state.pagination.notes.hasMore;
+  else if (route === "activities") hasMore = !!state.pagination.activities.hasMore;
+  else hasMore = false;
+  bar.classList.toggle("hidden", !hasMore);
+}
+
+function preloadRoutes() {
+  const idle = window.requestIdleCallback || ((fn) => setTimeout(fn, 350));
+  idle(async () => {
+    if (!state.supabase || !state.familyId) return;
+    try {
+      if (state.route !== "books" && state.pagination.books.page === 0 && (state.books || []).length === 0) {
+        await loadBooks({ replace: true, page: 0 });
+      }
+      if (state.route !== "notes" && state.pagination.notes.page === 0 && (state.notes || []).length === 0) {
+        await loadNotes({ replace: true, page: 0 });
+      }
+      if (state.route !== "activities" && state.pagination.activities.page === 0 && (state.activities || []).length === 0) {
+        await loadActivities({ replace: true, page: 0 });
+      }
+    } catch {}
+  });
+}
+
+function initSendQueue() {
+  state.pendingMessages = {};
+  const key = state.user && state.familyId ? STORAGE_KEYS.queueMessages(state.familyId, state.user.id) : null;
+  try {
+    if (key) {
+      const raw = localStorage.getItem(key);
+      const arr = raw ? JSON.parse(raw) : [];
+      arr.forEach((m) => {
+        if (!state.pendingMessages[m.peerId]) state.pendingMessages[m.peerId] = [];
+        state.pendingMessages[m.peerId].push(m);
+      });
+    }
+  } catch {}
+}
+
+function initReminderWatcher() {
+  setInterval(() => {
+    if (!state.familyId) return;
+    try {
+      const key = STORAGE_KEYS.remindersActivities(state.familyId);
+      const map = JSON.parse(localStorage.getItem(key) || "{}");
+      const now = Date.now();
+      Object.entries(map).forEach(([aid, when]) => {
+        const ts = Date.parse(when);
+        if (ts && ts <= now && !map[`done_${aid}`]) {
+          map[`done_${aid}`] = true;
+          localStorage.setItem(key, JSON.stringify(map));
+          const a = (state.activities || []).find((x) => String(x.id) === String(aid));
+          showToast(`Reminder: ${a?.title || "Activity"}`);
+        }
+      });
+    } catch {}
+  }, 30000);
+}
+function saveSendQueue() {
+  const key = state.user && state.familyId ? STORAGE_KEYS.queueMessages(state.familyId, state.user.id) : null;
+  if (!key) return;
+  const arr = [];
+  Object.entries(state.pendingMessages || {}).forEach(([peerId, msgs]) => {
+    msgs.forEach((m) => arr.push({ peerId, content: m.content, created_at: m.created_at }));
+  });
+  try { localStorage.setItem(key, JSON.stringify(arr)); } catch {}
+}
+function enqueueMessage(peerId, content) {
+  if (!state.pendingMessages) state.pendingMessages = {};
+  if (!state.pendingMessages[peerId]) state.pendingMessages[peerId] = [];
+  state.pendingMessages[peerId].push({ content, created_at: new Date().toISOString() });
+  saveSendQueue();
+}
+async function flushSendQueue() {
+  if (!state.online || !state.supabase || !state.user || !state.familyId) return;
+  const keys = Object.keys(state.pendingMessages || {});
+  for (const peerId of keys) {
+    const msgs = state.pendingMessages[peerId] || [];
+    const remain = [];
+    for (const m of msgs) {
+      try {
+        const { error } = await state.supabase.from("messages").insert({
+          family_id: state.familyId,
+          sender_id: state.user.id,
+          receiver_id: peerId,
+          content: m.content,
+        });
+        if (error) { remain.push(m); } else {
+        }
+      } catch {
+        remain.push(m);
+      }
+    }
+    state.pendingMessages[peerId] = remain;
+    saveSendQueue();
+    if (peerId === state.chatOpenMemberId) {
+      await loadConversation(peerId, { replace: true, page: 0 });
+    }
+  }
 }
 async function exportProfileData() {
   try {
@@ -1377,6 +2064,8 @@ function bindUI() {
   if (reviewBtn) reviewBtn.onclick = () => { openAccessRequests(); closeDrawer(); };
   const createFamBtn = qs("#btnCreateFamily");
   if (createFamBtn) createFamBtn.onclick = () => { openCreateFamily(); closeDrawer(); };
+  const healthBtn = qs("#btnHealth");
+  if (healthBtn) healthBtn.onclick = () => { openHealthCheck(); closeDrawer(); };
   const switchModeBtn = qs("#btnSwitchMode");
   if (switchModeBtn) switchModeBtn.onclick = () => {
     setAuthMode(state.authMode === "member" ? "manager" : "member");
@@ -1592,17 +2281,31 @@ function bindUI() {
   qs("#btnCreateBook").onclick = openCreateBookModal;
   // Activities
   qs("#btnCreateActivity").onclick = openCreateActivityModal;
+  const calBtn = qs("#btnOpenCalendar");
+  if (calBtn) calBtn.onclick = openCalendarView;
   // Chat
   qs("#btnSendMessage").onclick = sendMessage;
   // Sync
   qs("#btnSync").onclick = doRefresh;
   // Search
   const ns = qs("#notesSearchInput");
-  if (ns) ns.oninput = () => renderNotesScreen(ns.value.trim());
+  if (ns) ns.oninput = async () => {
+    state.pagination.notes.term = ns.value.trim().toLowerCase();
+    state.pagination.notes.page = 0;
+    await loadNotes({ replace: true, page: 0 });
+  };
   const bs = qs("#booksSearchInput");
-  if (bs) bs.oninput = () => renderBooksScreen(bs.value.trim());
+  if (bs) bs.oninput = async () => {
+    state.pagination.books.term = bs.value.trim().toLowerCase();
+    state.pagination.books.page = 0;
+    await loadBooks({ replace: true, page: 0 });
+  };
   const as = qs("#activitiesSearchInput");
-  if (as) as.oninput = () => renderActivitiesScreen(as.value.trim());
+  if (as) as.oninput = async () => {
+    state.pagination.activities.term = as.value.trim().toLowerCase();
+    state.pagination.activities.page = 0;
+    await loadActivities({ replace: true, page: 0 });
+  };
   const cs = qs("#chatSearchInput");
   if (cs) cs.oninput = () => renderChatScreen(cs.value.trim());
   // Header quick actions
@@ -1614,11 +2317,109 @@ function bindUI() {
       e.preventDefault();
       openQuickSwitcher();
     }
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "p") {
+      e.preventDefault();
+      openPerformanceMetrics();
+    }
   });
   // Pull to refresh
   bindPullToRefresh();
+  const loadMoreBtn = qs("#btnLoadMore");
+  if (loadMoreBtn) {
+    loadMoreBtn.onclick = async () => {
+      if (state.loadingMore) return;
+      state.loadingMore = true;
+      loadMoreBtn.disabled = true;
+      try {
+        if (state.route === "books") {
+          const p = state.pagination.books;
+          await loadBooks({ page: p.page + 1 });
+        } else if (state.route === "notes") {
+          const p = state.pagination.notes;
+          await loadNotes({ page: p.page + 1 });
+        } else if (state.route === "activities") {
+          const p = state.pagination.activities;
+          await loadActivities({ page: p.page + 1 });
+        }
+      } finally {
+        loadMoreBtn.disabled = false;
+        state.loadingMore = false;
+        updatePagerBar();
+      }
+    };
+  }
+  // Tag chips initial render
+  renderTagChips("notes");
+  renderTagChips("books");
+  renderTagChips("activities");
 }
 
+function renderTagChips(kind) {
+  const chipsRoot = qs(kind === "notes" ? "#notesTagChips" : kind === "books" ? "#booksTagChips" : "#activitiesTagChips");
+  if (!chipsRoot) return;
+  chipsRoot.innerHTML = "";
+  const tags = allTags(kind);
+  const selected = kind === "notes" ? (state.filters.notesTags || []) : kind === "books" ? (state.filters.booksTags || []) : (state.filters.activitiesTags || []);
+  tags.forEach((t) => {
+    const c = el("button", "chip"); c.textContent = t;
+    c.classList.toggle("chip--active", selected.includes(t));
+    c.onclick = () => {
+      const arr = selected.includes(t) ? selected.filter((x) => x !== t) : [...selected, t];
+      if (kind === "notes") state.filters.notesTags = arr;
+      if (kind === "books") state.filters.booksTags = arr;
+      if (kind === "activities") state.filters.activitiesTags = arr;
+      if (kind === "notes") renderNotesScreen();
+      if (kind === "books") renderBooksScreen();
+      if (kind === "activities") renderActivitiesScreen();
+    };
+    chipsRoot.appendChild(c);
+  });
+  const clear = el("button", "chip"); clear.textContent = "Clear";
+  clear.onclick = () => {
+    if (kind === "notes") state.filters.notesTags = [];
+    if (kind === "books") state.filters.booksTags = [];
+    if (kind === "activities") state.filters.activitiesTags = [];
+    if (kind === "notes") renderNotesScreen();
+    if (kind === "books") renderBooksScreen();
+    if (kind === "activities") renderActivitiesScreen();
+  };
+  chipsRoot.appendChild(clear);
+}
+
+function openCalendarView() {
+  openOverlay("Calendar", (content) => {
+    const rangeDays = 35;
+    const start = new Date(); start.setHours(0,0,0,0);
+    const items = (state.activities || []).slice().sort((a,b) => new Date(a.datetime) - new Date(b.datetime));
+    const days = [];
+    for (let i=0;i<rangeDays;i++) {
+      const d = new Date(start); d.setDate(d.getDate()+i);
+      const label = d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+      const dayItems = items.filter((a) => {
+        const ad = new Date(a.datetime);
+        return ad.getFullYear()===d.getFullYear() && ad.getMonth()===d.getMonth() && ad.getDate()===d.getDate();
+      });
+      days.push({ d, label, dayItems });
+    }
+    const list = el("div", "list");
+    days.forEach(({ label, dayItems }) => {
+      const it = el("div", "list-item");
+      const ti = el("div", "title"); ti.textContent = label;
+      const me = el("div", "meta"); me.textContent = dayItems.length ? `${dayItems.length} activities` : "—";
+      it.append(ti, me);
+      if (dayItems.length) {
+        dayItems.forEach((a) => {
+          const row = el("div", "preview");
+          row.textContent = `${fmtTime(a.datetime)} ${a.title}${a.location ? " • " + a.location : ""}`;
+          row.onclick = (e) => { e.stopPropagation(); setRoute("activities"); openActivityDetail(a); closeOverlay(true); };
+          it.appendChild(row);
+        });
+      }
+      list.appendChild(it);
+    });
+    content.append(list);
+  }, true);
+}
 function openCreateFamily() {
   openOverlay("Create New Family", (content) => {
     const card = el("div", "list-item");
@@ -1786,11 +2587,34 @@ document.addEventListener("DOMContentLoaded", async () => {
   registerServiceWorker();
   window.addEventListener("online", () => { state.online = true; setOfflineBanner(false); });
   window.addEventListener("offline", () => { state.online = false; setOfflineBanner(true); });
+  try { const raw = localStorage.getItem("pwa.usage"); if (raw) state.usage = JSON.parse(raw); } catch {}
+  window.addEventListener("error", (e) => { state.errors.push({ kind: "error", message: e.message, source: e.filename, line: e.lineno, col: e.colno, when: Date.now() }); if (state.errors.length > 100) state.errors.shift(); });
+  window.addEventListener("unhandledrejection", (e) => { state.errors.push({ kind: "rejection", message: String(e.reason || ""), when: Date.now() }); if (state.errors.length > 100) state.errors.shift(); });
+  initPerformanceObserver();
+  initSendQueue();
+  window.addEventListener("online", flushSendQueue);
+  initReminderWatcher();
   await bootstrapSupabase();
   attemptAuthBootstrap();
   checkJoinLink();
   setOfflineBanner(false);
 });
+
+let sessionPollInterval;
+function startSessionPoll() {
+  if (sessionPollInterval) clearInterval(sessionPollInterval);
+  sessionPollInterval = setInterval(async () => {
+    if (!state.supabase) return;
+    try {
+      const { data } = await state.supabase.auth.getSession();
+      const sess = data.session || null;
+      if (sess) {
+        state.session = sess;
+        state.user = sess.user || null;
+      }
+    } catch {}
+  }, 600000);
+}
 
 async function tryFetchConfig() {
   try {
@@ -1845,7 +2669,7 @@ function openQuickSwitcher() {
     function buildItems(term) {
       list.innerHTML = "";
       const t = (term || "").toLowerCase();
-      const items = [
+      let items = [
         ...(state.notes || []).map((n) => ({ type: "note", title: n.title, item: n })),
         ...(state.books || []).map((b) => ({ type: "book", title: b.title, item: b })),
         ...(state.activities || []).map((a) => ({ type: "activity", title: a.title, item: a })),
@@ -1853,16 +2677,26 @@ function openQuickSwitcher() {
           .filter((m) => m.id !== state.user?.id)
           .map((m) => ({ type: "member", title: m.display_name || m.id, item: m })),
       ].filter((x) => !t || (x.title?.toLowerCase().includes(t)));
+      const pinsN = getPins("notes"); const pinsB = getPins("books"); const pinsA = getPins("activities");
+      items = items.map((x) => {
+        const title = x.title?.toLowerCase() || "";
+        const exact = title === t ? 3 : title.startsWith(t) ? 2 : title.includes(t) ? 1 : 0;
+        const pin = x.type === "note" ? pinsN.has(x.item.id) : x.type === "book" ? pinsB.has(x.item.id) : x.type === "activity" ? pinsA.has(x.item.id) : false;
+        const typeBoost = x.type === "note" ? 1.0 : x.type === "book" ? 0.8 : x.type === "activity" ? 0.9 : 0.6;
+        const score = exact * 10 + (pin ? 5 : 0) + typeBoost;
+        return { ...x, score };
+      }).sort((a,b) => b.score - a.score);
       if (!items.length) {
         const empty = el("div", "list-item skeleton");
         empty.textContent = "No matches";
         list.appendChild(empty);
         return;
       }
-      items.slice(0, 20).forEach((x) => {
+      items.slice(0, 24).forEach((x) => {
         const it = el("div", "list-item");
         const ti = el("div", "title");
-        ti.textContent = `${x.title}`;
+        const icon = x.type === "note" ? "📝" : x.type === "book" ? "📚" : x.type === "activity" ? "📅" : "👤";
+        ti.textContent = `${icon} ${x.title}`;
         const me = el("div", "meta");
         me.textContent = x.type;
         it.append(ti, me);
@@ -1890,6 +2724,120 @@ function openQuickSwitcher() {
   }, true);
 }
 
+function openPerformanceMetrics() {
+  openOverlay("Performance", (content) => {
+    const list = el("div", "list");
+    const logs = (state.perf.logs || []).slice(-50).reverse();
+    if (!logs.length) {
+      const empty = el("div", "list-item");
+      empty.textContent = "No metrics yet";
+      list.appendChild(empty);
+    } else {
+      logs.forEach((l) => {
+        const it = el("div", "list-item");
+        const ti = el("div", "title");
+        ti.textContent = `${l.op} • ${l.count} rows`;
+        const me = el("div", "meta");
+        me.textContent = `${l.ms} ms • ${new Date(l.when).toLocaleTimeString()}`;
+        it.append(ti, me);
+        list.appendChild(it);
+      });
+    }
+    const actions = el("div"); actions.style.display = "flex"; actions.style.gap = "8px"; actions.style.marginTop = "8px";
+    const clear = el("button", "icon-btn"); clear.textContent = "Clear";
+    clear.onclick = () => { state.perf.logs = []; closeOverlay(true); };
+    actions.append(clear);
+    content.append(list, actions);
+  }, true);
+}
+function openHealthCheck() {
+  openOverlay("Client Health", (content) => {
+    const list = el("div", "list");
+    const caches = [];
+    try {
+      if (localStorage.getItem(STORAGE_KEYS.cacheNotes(state.familyId))) caches.push("notes");
+      if (localStorage.getItem(STORAGE_KEYS.cacheBooks(state.familyId))) caches.push("books");
+      if (localStorage.getItem(STORAGE_KEYS.cacheActivities(state.familyId))) caches.push("activities");
+      if (localStorage.getItem(STORAGE_KEYS.cacheMembers(state.familyId))) caches.push("members");
+    } catch {}
+    const status = [
+      { k: "Online", v: String(state.online) },
+      { k: "Session", v: String(!!state.session) },
+      { k: "User", v: state.user?.email || state.user?.id || "—" },
+      { k: "Family", v: state.familyId || "—" },
+      { k: "FamiliesLoaded", v: String((state.families || []).length) },
+      { k: "MembershipCount", v: String((state.debug?.membershipIds || []).length) },
+      { k: "LastFamilyKey", v: String(state.debug?.lastFamilyKey || "—") },
+      { k: "URLFamilyParam", v: String(state.debug?.urlFamilyParam || "—") },
+      { k: "Caches", v: caches.join(", ") || "none" },
+      { k: "Errors", v: String((state.errors || []).length) },
+      { k: "LongTasks", v: String((state.longTasks || []).length) },
+      { k: "Usage", v: `books:${state.usage.booksCreated} notes:${state.usage.notesCreated} activities:${state.usage.activitiesCreated}` },
+    ];
+    status.forEach((s) => {
+      const it = el("div", "list-item");
+      const ti = el("div", "title"); ti.textContent = s.k;
+      const me = el("div", "meta"); me.textContent = s.v;
+      it.append(ti, me);
+      list.appendChild(it);
+    });
+    const errorsTitle = el("div", "detail-subtitle"); errorsTitle.textContent = "Recent Errors";
+    list.appendChild(errorsTitle);
+    (state.errors || []).slice(-10).reverse().forEach((e) => {
+      const it = el("div", "list-item");
+      const ti = el("div", "title"); ti.textContent = e.message || String(e);
+      const me = el("div", "meta"); me.textContent = new Date(e.when).toLocaleTimeString();
+      it.append(ti, me);
+      list.appendChild(it);
+    });
+    const actions = el("div"); actions.style.display = "flex"; actions.style.gap = "8px"; actions.style.marginTop = "8px";
+    const copy = el("button", "icon-btn"); copy.textContent = "Copy Report";
+    copy.onclick = async () => {
+      const rpt = { status, errors: state.errors.slice(-50), perf: state.perf.logs.slice(-50) };
+      const text = JSON.stringify(rpt, null, 2);
+      try { await navigator.clipboard.writeText(text); showToast("Copied"); } catch { showToast("Copy failed"); }
+    };
+    const close = el("button", "icon-btn"); close.textContent = "Close";
+    close.onclick = () => closeOverlay(true);
+    actions.append(copy, close);
+    content.append(list, actions);
+  }, true);
+}
+function initPerformanceObserver() {
+  try {
+    const po = new PerformanceObserver((list) => {
+      list.getEntries().forEach((e) => {
+        state.longTasks.push({ duration: Math.round(e.duration), start: e.startTime, when: Date.now() });
+        if (state.longTasks.length > 200) state.longTasks.shift();
+      });
+    });
+    po.observe({ entryTypes: ["longtask"] });
+  } catch {}
+}
+function saveReminder(activityId, whenIso) {
+  if (!state.familyId) return;
+  try {
+    const key = STORAGE_KEYS.remindersActivities(state.familyId);
+    const map = JSON.parse(localStorage.getItem(key) || "{}");
+    map[String(activityId)] = whenIso;
+    localStorage.setItem(key, JSON.stringify(map));
+  } catch {}
+}
+function getLocalRSVP(activityId) {
+  if (!state.familyId) return null;
+  try {
+    const key = STORAGE_KEYS.rsvpActivity(state.familyId, activityId);
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+function saveLocalRSVP(activityId, payload) {
+  if (!state.familyId) return;
+  try {
+    const key = STORAGE_KEYS.rsvpActivity(state.familyId, activityId);
+    localStorage.setItem(key, JSON.stringify(payload));
+  } catch {}
+}
 async function openShareJoinCode() {
   if (!state.familyId) { openFamilySwitcher(); return; }
   const fam = state.families.find((f) => f.id === state.familyId);
@@ -2069,6 +3017,41 @@ async function checkJoinLink() {
     return;
   }
   await joinFamilyByCode(code);
+  const base = location.origin + location.pathname;
+  history.replaceState(null, "", base);
+}
+
+async function checkRouteLink() {
+  const params = new URLSearchParams(location.search);
+  const r = params.get("route");
+  const id = params.get("id");
+  const mode = params.get("mode");
+  if (!r) return;
+  if (!state.user || !state.familyId) return;
+  if (r === "notes") {
+    setRoute("notes");
+    if (id) {
+      const n = (state.notes || []).find((x) => String(x.id) === String(id));
+      if (n) await openNoteDetail(n, { showTitle: true, readonly: mode === "view" });
+    }
+  } else if (r === "books") {
+    setRoute("books");
+    if (id) {
+      const b = (state.books || []).find((x) => String(x.id) === String(id));
+      if (b) openBookDetail(b);
+    }
+  } else if (r === "activities") {
+    setRoute("activities");
+    if (id) {
+      const a = (state.activities || []).find((x) => String(x.id) === String(id));
+      if (a) openActivityDetail(a);
+    }
+  } else if (r === "chat") {
+    setRoute("chat");
+    if (id) {
+      openConversation(id, id);
+    }
+  }
   const base = location.origin + location.pathname;
   history.replaceState(null, "", base);
 }

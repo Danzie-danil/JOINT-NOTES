@@ -52,6 +52,7 @@
           <div class="drawer-section">
             <div class="drawer-label">Help</div>
             <button class="drawer-item" id="btnHelp">Help / About</button>
+            <button class="drawer-item" id="btnHealth">Client Health</button>
           </div>
           <div class="drawer-section">
             <div class="drawer-label">Supabase</div>
@@ -101,6 +102,7 @@
           <div class="screen-toolbar">
             <button class="primary-btn" id="btnNewNote">New Note</button>
             <input id="notesSearchInput" type="search" placeholder="Search notes..." class="search-input" />
+            <div id="notesTagChips" class="chip-row"></div>
             <div id="currentFamilyBadge" class="badge"></div>
           </div>
           <div id="notesInlineForm" class="inline-form hidden"></div>
@@ -110,6 +112,7 @@
             <div class="detail-header">
               <button id="btnCloseNote" class="icon-btn">←</button>
               <div id="noteTitleView" class="detail-title"></div>
+              <div id="noteBreadcrumbs" class="detail-subtitle"></div>
             </div>
             <div id="paragraphs" class="paragraphs"></div>
             <div class="editor">
@@ -123,6 +126,7 @@
               </div>
               <div id="editorInput" class="editor-input" contenteditable="true" aria-label="Write a new paragraph"></div>
               <div class="editor-actions">
+                <input id="noteFileInput" type="file" accept="image/*,.pdf,.doc,.docx" />
                 <button id="btnSaveParagraph" class="primary-btn">Save Paragraph</button>
               </div>
             </div>
@@ -133,6 +137,7 @@
           <div class="screen-toolbar">
             <button class="primary-btn" id="btnCreateBook">Create Book</button>
             <input id="booksSearchInput" type="search" placeholder="Search books..." class="search-input" />
+            <div id="booksTagChips" class="chip-row"></div>
             <div id="booksFamilyBadge" class="badge"></div>
           </div>
           <div id="booksInlineForm" class="inline-form hidden"></div>
@@ -143,6 +148,7 @@
               <button id="btnCloseBook" class="icon-btn">←</button>
               <div id="bookTitleView" class="detail-title"></div>
             </div>
+            <div id="bookBreadcrumbs" class="detail-subtitle"></div>
             <div id="bookDescriptionView" class="detail-subtitle"></div>
             <div id="bookNotesList" class="list"></div>
           </div>
@@ -152,6 +158,8 @@
           <div class="screen-toolbar">
             <button class="primary-btn" id="btnCreateActivity">Create Activity</button>
             <input id="activitiesSearchInput" type="search" placeholder="Search activities..." class="search-input" />
+            <div id="activitiesTagChips" class="chip-row"></div>
+            <button class="icon-btn" id="btnOpenCalendar">Calendar</button>
             <div id="activitiesFamilyBadge" class="badge"></div>
           </div>
           <div id="activitiesInlineForm" class="inline-form hidden"></div>
@@ -162,6 +170,7 @@
               <button id="btnCloseActivity" class="icon-btn">←</button>
               <div id="activityTitleView" class="detail-title"></div>
             </div>
+            <div id="activityBreadcrumbs" class="detail-subtitle"></div>
             <div id="activityInfo" class="detail-subtitle"></div>
             <div id="activityLinked" class="linked"></div>
           </div>
@@ -178,15 +187,20 @@
               <button id="btnCloseConversation" class="icon-btn">←</button>
               <div id="conversationTitle" class="detail-title"></div>
             </div>
+            <div id="conversationBreadcrumbs" class="detail-subtitle"></div>
             <div id="messagesArea" class="messages"></div>
             <button id="btnScrollLatest" class="icon-btn" style="position: sticky; left: calc(100% - 72px); bottom: 10px; z-index: 5;">↓ Latest</button>
             <div class="message-input-bar">
+              <input id="chatFileInput" type="file" accept="image/*,.pdf,.doc,.docx" />
               <input id="messageInput" type="text" placeholder="Type a message..." />
               <button id="btnSendMessage" class="primary-btn">Send</button>
             </div>
           </div>
         </section>
       </main>
+      <div id="pagerBar" class="pager-bar hidden">
+        <button id="btnLoadMore" class="primary-btn">Load more</button>
+      </div>
 
       <nav id="bottomTabs" class="bottom-tabs">
         <button class="tab" data-route="notes">

@@ -252,6 +252,25 @@ body {
   color: var(--muted);
   margin-bottom: 10px;
 }
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.chip {
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.chip--active {
+  background: var(--accent);
+  color: var(--accent-contrast);
+  border-color: var(--accent);
+}
 .paragraphs {
   display: grid;
   gap: 10px;
@@ -532,6 +551,18 @@ button, input, select, textarea {
   z-index: 60;
 }
 .toast.hidden { display: none; }
+
+.pager-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(70px + env(safe-area-inset-bottom));
+  display: flex;
+  justify-content: center;
+  z-index: 40;
+  pointer-events: auto;
+}
+.pager-bar.hidden { display: none; }
 
 /* Ripple interaction */
 /* Skeleton shimmer */
