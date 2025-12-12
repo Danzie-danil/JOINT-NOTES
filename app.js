@@ -442,12 +442,18 @@ function updateOwnerControls() {
    Data loading and caching
 ========================================= */
 async function loadAllData() {
-  await Promise.all([
-    loadBooks(),
-    loadNotes(),
-    loadActivities(),
-    loadMembers(),
-  ]);
+  if (!state.supabase || !state.familyId) {
+    state.books = [];
+    state.notes = [];
+    state.activities = [];
+    state.members = [];
+    renderBooksScreen();
+    renderNotesScreen();
+    renderActivitiesScreen();
+    renderChatScreen();
+    return;
+  }
+  await Promise.all([loadBooks(), loadNotes(), loadActivities(), loadMembers()]);
 }
 async function safeFetch(fn, cacheKey) {
   try {
@@ -501,19 +507,26 @@ async function loadActivities() {
   renderActivitiesScreen();
 }
 async function loadMembers() {
+  if (!state.supabase || !state.familyId) {
+    state.members = [];
+    renderChatScreen();
+    return;
+  }
+  const rel = await state.supabase
+    .from("family_members")
+    .select("user_id")
+    .eq("family_id", state.familyId);
+  const ids = rel.error ? [] : (rel.data || []).map((x) => x.user_id);
+  if (!ids.length) {
+    state.members = [];
+    renderChatScreen();
+    return;
+  }
   const members = await safeFetch(async () => {
     const { data, error } = await state.supabase
       .from("profiles")
       .select("id,display_name,avatar_url")
-      .in(
-        "id",
-        (
-          await state.supabase
-            .from("family_members")
-            .select("user_id")
-            .eq("family_id", state.familyId)
-        ).data?.map((x) => x.user_id) || []
-      );
+      .in("id", ids);
     if (error) throw error;
     return data;
   }, STORAGE_KEYS.cacheMembers(state.familyId));
@@ -1257,6 +1270,7 @@ async function sendMessage() {
    Refresh & export
 ========================================= */
 async function doRefresh() {
+  await ensureFamilyContext();
   await loadAllData();
   if (state.chatOpenMemberId) {
     await loadConversation(state.chatOpenMemberId);
