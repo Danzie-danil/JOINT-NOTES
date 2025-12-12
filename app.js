@@ -382,17 +382,21 @@ function openFamilySwitcher() {
       if (!state.user) { showAuthScreen(); showToast("Sign in first"); return; }
       if (state.supabase) {
         try {
-          const { data: fam, error } = await state.supabase
+          const id = (crypto && crypto.randomUUID) ? crypto.randomUUID() : null;
+          const payload = id ? { id, name } : { name };
+          const { error } = await state.supabase
             .from("families")
-            .insert({ name, created_by: state.user.id })
-            .select()
-            .single();
+            .insert(payload);
           if (error) throw error;
-          await state.supabase
-            .from("family_members")
-            .insert({ family_id: fam.id, user_id: state.user.id, role: "owner" });
-          state.families.push(fam);
-          state.familyId = fam.id;
+          try {
+            await state.supabase
+              .from("family_members")
+              .insert({ family_id: id, user_id: state.user.id, role: "owner" });
+          } catch {}
+          if (id) {
+            state.families.push({ id, name });
+            state.familyId = id;
+          }
           updateFamilyBadges();
           closeOverlay(true);
           loadAllData();
@@ -1609,17 +1613,21 @@ function openCreateFamily() {
       if (!state.user) { showAuthScreen(); showToast("Sign in first"); return; }
       if (state.supabase) {
         try {
-          const { data: fam, error } = await state.supabase
+          const id = (crypto && crypto.randomUUID) ? crypto.randomUUID() : null;
+          const payload = id ? { id, name } : { name };
+          const { error } = await state.supabase
             .from("families")
-            .insert({ name, created_by: state.user.id })
-            .select()
-            .single();
+            .insert(payload);
           if (error) throw error;
-          await state.supabase
-            .from("family_members")
-            .insert({ family_id: fam.id, user_id: state.user.id, role: "owner" });
-          state.families.push(fam);
-          state.familyId = fam.id;
+          try {
+            await state.supabase
+              .from("family_members")
+              .insert({ family_id: id, user_id: state.user.id, role: "owner" });
+          } catch {}
+          if (id) {
+            state.families.push({ id, name });
+            state.familyId = id;
+          }
           updateFamilyBadges();
           closeOverlay(true);
           loadAllData();
@@ -1757,6 +1765,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   await bootstrapSupabase();
   attemptAuthBootstrap();
   checkJoinLink();
+  setOfflineBanner(false);
 });
 
 async function tryFetchConfig() {
