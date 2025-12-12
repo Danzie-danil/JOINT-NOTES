@@ -367,14 +367,9 @@ function openFamilySwitcher() {
         state.familyId = fam.id;
         updateFamilyBadges();
         closeOverlay(true);
-        if (state.supabase) {
-          loadAllData();
-          rebindRealtime();
-          loadMembershipRole();
-        } else {
-          localLoadAllData();
-          loadMembershipRole();
-        }
+        loadAllData();
+        rebindRealtime();
+        loadMembershipRole();
       };
       list.appendChild(item);
     });
@@ -389,7 +384,7 @@ function openFamilySwitcher() {
         try {
           const { data: fam, error } = await state.supabase
             .from("families")
-            .insert({ name })
+            .insert({ name, created_by: state.user.id })
             .select()
             .single();
           if (error) throw error;
@@ -1614,7 +1609,7 @@ function openCreateFamily() {
         try {
           const { data: fam, error } = await state.supabase
             .from("families")
-            .insert({ name })
+            .insert({ name, created_by: state.user.id })
             .select()
             .single();
           if (error) throw error;
@@ -1628,8 +1623,8 @@ function openCreateFamily() {
           loadAllData();
           rebindRealtime();
           loadMembershipRole();
-        } catch {
-          showToast("Failed to create family");
+        } catch (e) {
+          showToast(e?.message || "Failed to create family");
         }
       }
     };
