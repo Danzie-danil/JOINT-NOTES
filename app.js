@@ -477,21 +477,19 @@ function openFamilySwitcher() {
       if (!state.user) { showAuthScreen(); showToast("Sign in first"); return; }
       if (state.supabase) {
         try {
-          const id = genId("fam");
-          const payload = { id, name };
-          const { data: famRow, error } = await state.supabase
+          const famId = newUuid();
+          const payload = { id: famId, name, owner_id: state.user.id };
+          const { error } = await state.supabase
             .from("families")
-            .insert(payload)
-            .select("id,name,join_code")
-            .single();
+            .insert(payload, { returning: "minimal" });
           if (error) throw error;
           const { error: memberErr } = await state.supabase
             .from("family_members")
-            .insert({ family_id: famRow.id, user_id: state.user.id, role: "owner" });
+            .insert({ family_id: famId, user_id: state.user.id, role: "owner" });
           if (memberErr) throw memberErr;
-          state.families.push(famRow);
-          state.familyId = famRow.id;
-          localStorage.setItem(STORAGE_KEYS.lastFamily, famRow.id);
+          state.families.push({ id: famId, name });
+          state.familyId = famId;
+          localStorage.setItem(STORAGE_KEYS.lastFamily, famId);
           updateFamilyBadges();
           closeOverlay(true);
           loadAllData();
@@ -933,6 +931,15 @@ function randomCode(len = 8) {
 function genId(prefix = "id") {
   if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
   return `${prefix}_${Math.random().toString(36).slice(2)}`;
+}
+function newUuid() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+  const s = []; const hex = "0123456789abcdef";
+  for (let i = 0; i < 36; i++) s[i] = hex[Math.floor(Math.random() * 16)];
+  s[14] = "4";
+  s[19] = hex[(parseInt(s[19], 16) & 0x3) | 0x8];
+  s[8] = s[13] = s[18] = s[23] = "-";
+  return s.join("");
 }
 
 /* =========================================
@@ -2444,28 +2451,26 @@ function openCreateFamily() {
       if (!state.user) { showAuthScreen(); showToast("Sign in first"); return; }
       if (state.supabase) {
         try {
-          const id = genId("fam");
-          const payload = { id, name };
-          const { data: famRow, error } = await state.supabase
+          const famId = newUuid();
+          const payload = { id: famId, name, owner_id: state.user.id };
+          const { error } = await state.supabase
             .from("families")
-            .insert(payload)
-            .select("id,name,join_code")
-            .single();
+            .insert(payload, { returning: "minimal" });
           if (error) throw error;
-          try {
-            await state.supabase
-              .from("family_members")
-              .insert({ family_id: famRow.id, user_id: state.user.id, role: "owner" });
-          } catch {}
-          state.families.push(famRow);
-          state.familyId = famRow.id;
-          localStorage.setItem(STORAGE_KEYS.lastFamily, famRow.id);
+          const { error: memberErr } = await state.supabase
+            .from("family_members")
+            .insert({ family_id: famId, user_id: state.user.id, role: "owner" });
+          if (memberErr) throw memberErr;
+          state.families.push({ id: famId, name });
+          state.familyId = famId;
+          localStorage.setItem(STORAGE_KEYS.lastFamily, famId);
           updateFamilyBadges();
           closeOverlay(true);
           loadAllData();
           rebindRealtime();
           loadMembershipRole();
         } catch (e) {
+          console.error(e);
           showToast(e?.message || "Failed to create family");
         }
       }
