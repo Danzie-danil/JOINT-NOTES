@@ -32,6 +32,7 @@ body {
   font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
   background: var(--bg);
   color: var(--text);
+  touch-action: manipulation;
 }
 
 .app {
@@ -174,9 +175,14 @@ body {
 }
 .inline-form .input-with-icon {
   position: relative;
+  width: 100%;
 }
 .inline-form .input-with-icon input {
   padding-right: 40px;
+}
+.inline-form input[type="datetime-local"] {
+  max-width: 100%;
+  min-width: 0;
 }
 .inline-form .input-icon-btn {
   position: absolute;

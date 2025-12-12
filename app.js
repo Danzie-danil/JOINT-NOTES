@@ -382,21 +382,21 @@ function openFamilySwitcher() {
       if (!state.user) { showAuthScreen(); showToast("Sign in first"); return; }
       if (state.supabase) {
         try {
-          const id = (crypto && crypto.randomUUID) ? crypto.randomUUID() : null;
-          const payload = id ? { id, name } : { name };
-          const { error } = await state.supabase
+          const id = genId("fam");
+          const payload = { id, name };
+          const { data: famRow, error } = await state.supabase
             .from("families")
-            .insert(payload);
+            .insert(payload)
+            .select("id,name,join_code")
+            .single();
           if (error) throw error;
           try {
             await state.supabase
               .from("family_members")
-              .insert({ family_id: id, user_id: state.user.id, role: "owner" });
+              .insert({ family_id: famRow.id, user_id: state.user.id, role: "owner" });
           } catch {}
-          if (id) {
-            state.families.push({ id, name });
-            state.familyId = id;
-          }
+          state.families.push(famRow);
+          state.familyId = famRow.id;
           updateFamilyBadges();
           closeOverlay(true);
           loadAllData();
@@ -467,7 +467,7 @@ async function loadBooks() {
       .from("books")
       .select("*")
       .eq("family_id", state.familyId)
-      .order("created_at", { ascending: false });
+      .order("id", { ascending: false });
     if (error) throw error;
     return data;
   }, STORAGE_KEYS.cacheBooks(state.familyId));
@@ -797,10 +797,13 @@ async function deleteParagraph(p) {
 /* =========================================
    New Note flow
 ========================================= */
-function openNewNoteModal() {
+async function openNewNoteModal() {
   const host = qs("#notesInlineForm");
   host.classList.remove("hidden");
   host.innerHTML = "";
+  if (state.supabase) {
+    try { await loadBooks(); } catch {}
+  }
   const card = el("div", "form-card");
   const row1 = el("div", "form-row");
   const inputTitle = el("input"); inputTitle.placeholder = "Title";
@@ -1055,7 +1058,7 @@ function openCreateActivityModal() {
   const inputDesc = el("input"); inputDesc.placeholder = "Description";
   rowTop.append(inputTitle, inputDesc);
   const rowMid = el("div", "form-row");
-  const inputDate = el("input"); inputDate.type = "datetime-local";
+  const inputDate = el("input"); inputDate.type = "datetime-local"; inputDate.value = formatDateTimeLocal(new Date());
   const inputLoc = el("input"); inputLoc.placeholder = "Location (optional)";
   const dateWrap = el("div", "input-with-icon");
   dateWrap.appendChild(inputDate);
@@ -1613,21 +1616,21 @@ function openCreateFamily() {
       if (!state.user) { showAuthScreen(); showToast("Sign in first"); return; }
       if (state.supabase) {
         try {
-          const id = (crypto && crypto.randomUUID) ? crypto.randomUUID() : null;
-          const payload = id ? { id, name } : { name };
-          const { error } = await state.supabase
+          const id = genId("fam");
+          const payload = { id, name };
+          const { data: famRow, error } = await state.supabase
             .from("families")
-            .insert(payload);
+            .insert(payload)
+            .select("id,name,join_code")
+            .single();
           if (error) throw error;
           try {
             await state.supabase
               .from("family_members")
-              .insert({ family_id: id, user_id: state.user.id, role: "owner" });
+              .insert({ family_id: famRow.id, user_id: state.user.id, role: "owner" });
           } catch {}
-          if (id) {
-            state.families.push({ id, name });
-            state.familyId = id;
-          }
+          state.families.push(famRow);
+          state.familyId = famRow.id;
           updateFamilyBadges();
           closeOverlay(true);
           loadAllData();
