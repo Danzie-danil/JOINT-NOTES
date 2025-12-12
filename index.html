@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#000000" />
+    <meta name="supabase-url" content="" />
+    <meta name="supabase-anon" content="" />
+    <title>Joint Notes</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body class="theme-dark">
+    <div id="app" class="app">
+      <header class="app-header">
+        <button id="btnDrawer" aria-label="Open menu" class="icon-btn">☰</button>
+        <div class="header-title" id="headerTitle">Notes</div>
+        <div class="header-actions">
+          <button id="btnQuickSwitch" class="icon-btn" aria-label="Quick Switch">🔍</button>
+          <button id="btnSync" class="icon-btn" aria-label="Refresh/Sync">⟳</button>
+        </div>
+      </header>
+
+      <aside id="drawer" class="drawer">
+        <div class="drawer-header">
+          <div class="drawer-title">Menu</div>
+          <button id="btnCloseDrawer" class="icon-btn">✕</button>
+        </div>
+        <div class="drawer-content">
+          <div class="drawer-section">
+            <div class="drawer-label">Family</div>
+            <button class="drawer-item" id="btnFamilySwitcher">Switch / Manage Family</button>
+            <button class="drawer-item" id="btnShareJoinCode">Share Join Code</button>
+            <button class="drawer-item" id="btnJoinByCode">Join Family via Code</button>
+            <button class="drawer-item" id="btnReviewRequests">Review Join Requests</button>
+            <button class="drawer-item" id="btnCreateFamily">Create New Family</button>
+          </div>
+          <div class="drawer-section">
+            <div class="drawer-label">Account</div>
+            <button class="drawer-item" id="btnProfileSettings">Profile & Settings</button>
+            <button class="drawer-item" id="btnSwitchMode">Switch Account Mode</button>
+          </div>
+          <div class="drawer-section">
+            <div class="drawer-label">Appearance</div>
+            <button class="drawer-item" id="btnThemeToggle">Toggle Theme (AMOLED / Light)</button>
+          </div>
+          <div class="drawer-section">
+            <div class="drawer-label">Data</div>
+            <button class="drawer-item" id="btnExport">Export My Profile Data</button>
+            <button class="drawer-item" id="btnRefresh">Refresh Data</button>
+          </div>
+          <div class="drawer-section">
+            <div class="drawer-label">Help</div>
+            <button class="drawer-item" id="btnHelp">Help / About</button>
+          </div>
+          <div class="drawer-section">
+            <div class="drawer-label">Supabase</div>
+            <button class="drawer-item" id="btnSupabaseConfig">Supabase Configuration</button>
+          </div>
+        </div>
+      </aside>
+      <div id="drawerBackdrop" class="drawer-backdrop"></div>
+
+      <main id="screens" class="screens">
+        <section id="screen-auth" class="screen">
+          <div class="auth-card">
+            <div class="auth-title">Welcome</div>
+            <div class="auth-subtitle">Sign in to collaborate with your Family</div>
+            <div class="seg-toggle" id="authModeToggle">
+              <button class="seg-btn seg-btn--active" id="authModeMemberBtn">Member</button>
+              <button class="seg-btn" id="authModeManagerBtn">Manager</button>
+            </div>
+            <div class="seg-toggle" id="authActionToggle">
+              <button class="seg-btn seg-btn--active" id="authActionLoginBtn">Sign In</button>
+              <button class="seg-btn" id="authActionRegisterBtn">Register</button>
+              <button class="seg-btn" id="authActionMagicBtn">Magic Link</button>
+              <button class="seg-btn" id="authActionResetBtn">Reset Password</button>
+            </div>
+            <form id="authLoginForm" class="auth-form">
+              <input type="email" id="authEmail" placeholder="Email" autocomplete="email" required />
+              <input type="password" id="authPassword" placeholder="Password" autocomplete="current-password" required />
+              <button type="submit" class="primary-btn" id="btnSignIn">Sign In</button>
+            </form>
+            <form id="authRegisterForm" class="auth-form hidden">
+              <input type="email" id="regEmail" placeholder="Email" autocomplete="email" required />
+              <input type="password" id="regPassword" placeholder="Password" autocomplete="new-password" required />
+              <button type="submit" class="primary-btn" id="btnDoRegister">Register</button>
+            </form>
+            <form id="authMagicForm" class="auth-form hidden">
+              <input type="email" id="magicEmail" placeholder="Email" autocomplete="email" required />
+              <button type="submit" class="primary-btn" id="btnDoMagic">Send Magic Link</button>
+            </form>
+            <form id="authResetForm" class="auth-form hidden">
+              <input type="email" id="resetEmail" placeholder="Email" autocomplete="email" required />
+              <button type="submit" class="primary-btn" id="btnDoReset">Send Reset Email</button>
+            </form>
+          </div>
+        </section>
+
+        <section id="screen-notes" class="screen">
+          <div class="screen-toolbar">
+            <button class="primary-btn" id="btnNewNote">New Note</button>
+            <input id="notesSearchInput" type="search" placeholder="Search notes..." class="search-input" />
+            <div id="currentFamilyBadge" class="badge"></div>
+          </div>
+          <div id="notesInlineForm" class="inline-form hidden"></div>
+          <div id="notesEmpty" class="empty-fade hidden">Looks like there's nothing here… Try adding notes.</div>
+          <div id="notesList" class="list"></div>
+          <div id="noteDetail" class="detail hidden">
+            <div class="detail-header">
+              <button id="btnCloseNote" class="icon-btn">←</button>
+              <div id="noteTitleView" class="detail-title"></div>
+            </div>
+            <div id="paragraphs" class="paragraphs"></div>
+            <div class="editor">
+              <div class="toolbar">
+                <button data-cmd="bold" class="icon-btn">B</button>
+                <button data-cmd="italic" class="icon-btn">I</button>
+                <button data-cmd="underline" class="icon-btn">U</button>
+                <button data-cmd="strikeThrough" class="icon-btn">S</button>
+                <button data-cmd="insertUnorderedList" class="icon-btn">•</button>
+                <button data-cmd="insertOrderedList" class="icon-btn">1.</button>
+              </div>
+              <div id="editorInput" class="editor-input" contenteditable="true" aria-label="Write a new paragraph"></div>
+              <div class="editor-actions">
+                <button id="btnSaveParagraph" class="primary-btn">Save Paragraph</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="screen-books" class="screen">
+          <div class="screen-toolbar">
+            <button class="primary-btn" id="btnCreateBook">Create Book</button>
+            <input id="booksSearchInput" type="search" placeholder="Search books..." class="search-input" />
+            <div id="booksFamilyBadge" class="badge"></div>
+          </div>
+          <div id="booksInlineForm" class="inline-form hidden"></div>
+          <div id="booksEmpty" class="empty-fade hidden">Looks like there's nothing here… Try adding books.</div>
+          <div id="booksList" class="list"></div>
+          <div id="bookDetail" class="detail hidden">
+            <div class="detail-header">
+              <button id="btnCloseBook" class="icon-btn">←</button>
+              <div id="bookTitleView" class="detail-title"></div>
+            </div>
+            <div id="bookDescriptionView" class="detail-subtitle"></div>
+            <div id="bookNotesList" class="list"></div>
+          </div>
+        </section>
+
+        <section id="screen-activities" class="screen">
+          <div class="screen-toolbar">
+            <button class="primary-btn" id="btnCreateActivity">Create Activity</button>
+            <input id="activitiesSearchInput" type="search" placeholder="Search activities..." class="search-input" />
+            <div id="activitiesFamilyBadge" class="badge"></div>
+          </div>
+          <div id="activitiesInlineForm" class="inline-form hidden"></div>
+          <div id="activitiesEmpty" class="empty-fade hidden">Looks like there's nothing here… Try adding activities.</div>
+          <div id="activitiesList" class="list"></div>
+          <div id="activityDetail" class="detail hidden">
+            <div class="detail-header">
+              <button id="btnCloseActivity" class="icon-btn">←</button>
+              <div id="activityTitleView" class="detail-title"></div>
+            </div>
+            <div id="activityInfo" class="detail-subtitle"></div>
+            <div id="activityLinked" class="linked"></div>
+          </div>
+        </section>
+
+        <section id="screen-chat" class="screen">
+          <div class="screen-toolbar">
+            <input id="chatSearchInput" type="search" placeholder="Search members..." class="search-input" />
+          </div>
+          <div id="chatEmpty" class="empty-fade hidden">Looks like there's nothing here… Try messaging your family members.</div>
+          <div id="chatList" class="list"></div>
+          <div id="conversationView" class="conversation hidden">
+            <div class="detail-header">
+              <button id="btnCloseConversation" class="icon-btn">←</button>
+              <div id="conversationTitle" class="detail-title"></div>
+            </div>
+            <div id="messagesArea" class="messages"></div>
+            <button id="btnScrollLatest" class="icon-btn" style="position: sticky; left: calc(100% - 72px); bottom: 10px; z-index: 5;">↓ Latest</button>
+            <div class="message-input-bar">
+              <input id="messageInput" type="text" placeholder="Type a message..." />
+              <button id="btnSendMessage" class="primary-btn">Send</button>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <nav id="bottomTabs" class="bottom-tabs">
+        <button class="tab" data-route="notes">
+          <div class="tab-icon">📝</div>
+          <div class="tab-label">Notes</div>
+        </button>
+        <button class="tab" data-route="books">
+          <div class="tab-icon">📚</div>
+          <div class="tab-label">Books</div>
+        </button>
+        <button class="tab" data-route="activities">
+          <div class="tab-icon">📅</div>
+          <div class="tab-label">Activities</div>
+        </button>
+        <button class="tab" data-route="chat">
+          <div class="tab-icon">💬</div>
+          <div class="tab-label">Chat</div>
+        </button>
+      </nav>
+
+      <div id="modalLayer" class="modal-layer hidden">
+        <div id="modalContent" class="modal-content"></div>
+      </div>
+      <div id="toast" class="toast hidden"></div>
+      <div id="offlineBanner" class="offline-banner hidden">Offline: showing cached data</div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
