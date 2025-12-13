@@ -31,13 +31,19 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET") return;
-  event.respondWith(
-    fetch(req)
-      .then((res) => {
+  event.respondWith((async () => {
+    try {
+      const res = await fetch(req);
+      if (res && res.ok) {
         const copy = res.clone();
         caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
         return res;
-      })
-      .catch(() => caches.match(req).then((res) => res || caches.match("/index.html")))
-  );
+      }
+      const cached = await caches.match(req);
+      return cached || (await caches.match("/index.html")) || res;
+    } catch {
+      const cached = await caches.match(req);
+      return cached || (await caches.match("/index.html"));
+    }
+  })());
 });

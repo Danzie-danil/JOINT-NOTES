@@ -2,7 +2,7 @@
   "name": "Joint Notes",
   "short_name": "JointNotes",
   "description": "Collaborative notes, books, activities, and chat for families.",
-  "start_url": "/",
+  "start_url": "/index.html",
   "scope": "/",
   "display": "standalone",
   "background_color": "#000000",
