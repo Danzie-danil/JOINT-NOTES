@@ -145,6 +145,11 @@ body.compact-mode #app { max-width: 420px; margin: 0 auto; border-left: 1px soli
   color: var(--muted);
   margin-top: 6px;
 }
+.list-item-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
 .list-item .title, .list-item .meta, .list-item .preview { overflow-wrap: anywhere; word-break: break-word; }
 
 .detail .detail-header {

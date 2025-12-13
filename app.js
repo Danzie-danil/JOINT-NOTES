@@ -238,7 +238,7 @@ function setRoute(name) {
   qsa(".screen").forEach((s) => s.classList.remove("screen--active"));
   qs(`#screen-${name}`).classList.add("screen--active");
   qsa(".tab").forEach((t) => t.classList.toggle("active", t.dataset.route === name));
-  qs("#headerTitle").textContent = name[0].toUpperCase() + name.slice(1);
+  qs("#headerTitle").textContent = name === "books" ? "Notebook" : (name[0].toUpperCase() + name.slice(1));
   const tabs = qsa(".tab");
   const idx = tabs.findIndex((t) => t.dataset.route === name);
   const root = qs(".bottom-tabs");
@@ -999,7 +999,7 @@ function renderNotesScreen() {
     const title = el("div", "title");
     title.textContent = note.title;
     const meta = el("div", "meta");
-    meta.textContent = `Book: ${state.books.find((b) => b.id === note.book_id)?.title || "—"} `;
+    meta.textContent = `Notebook: ${state.books.find((b) => b.id === note.book_id)?.title || "—"} `;
     const preview = el("div", "preview");
     preview.textContent = state.supabase ? "Loading preview…" : (note.preview || "—");
     const pin = el("button", "icon-btn");
@@ -1007,7 +1007,34 @@ function renderNotesScreen() {
     pin.onclick = (e) => { e.stopPropagation(); togglePin("notes", note.id); renderNotesScreen(); };
     const tagBtn = el("button", "icon-btn"); tagBtn.textContent = "Tags";
     tagBtn.onclick = (e) => { e.stopPropagation(); openEditTags("notes", note.id, note.title); };
-    item.append(title, meta, preview, pin, tagBtn);
+    const actionsBar = el("div", "list-item-actions");
+    const editBtn = el("button", "icon-btn"); editBtn.textContent = "Edit";
+    const deleteBtn = el("button", "icon-btn"); deleteBtn.textContent = "Delete";
+    editBtn.onclick = (e) => { e.stopPropagation(); openNoteEditModal(note); };
+    deleteBtn.onclick = (e) => { e.stopPropagation(); deleteNote(note); };
+    actionsBar.append(editBtn, deleteBtn, tagBtn, pin);
+    const tagsRow = el("div", "chip-row");
+    const map = getTags("notes"); const arr = map.get(String(note.id)) || [];
+    arr.forEach((t) => { const c = el("button", "chip"); c.textContent = t; tagsRow.appendChild(c); });
+    item.append(title, meta, preview, tagsRow, actionsBar);
+    let startX = 0; let dx = 0; let swiped = false;
+    item.addEventListener("touchstart", (ev) => { startX = ev.touches[0].clientX; dx = 0; swiped = false; }, { passive: true });
+    item.addEventListener("touchmove", (ev) => { dx = ev.touches[0].clientX - startX; }, { passive: true });
+    item.addEventListener("touchend", () => {
+      if (Math.abs(dx) > 40) {
+        swiped = true;
+        if (dx < 0) {
+          actionsBar.innerHTML = "";
+          const del = el("button", "primary-btn"); del.textContent = "Delete"; del.onclick = (e) => { e.stopPropagation(); deleteNote(note); };
+          actionsBar.append(del);
+        } else {
+          actionsBar.innerHTML = "";
+          const edit = el("button", "primary-btn"); edit.textContent = "Edit"; edit.onclick = (e) => { e.stopPropagation(); openNoteEditModal(note); };
+          const tags = el("button", "icon-btn"); tags.textContent = "Tags"; tags.onclick = (e) => { e.stopPropagation(); openEditTags("notes", note.id, note.title); };
+          actionsBar.append(edit, tags);
+        }
+      }
+    }, { passive: true });
     item.onclick = () => openNoteDetail(note, { showTitle: false });
     title.onclick = (e) => { e.stopPropagation(); openNoteDetail(note, { showTitle: true }); };
     list.appendChild(item);
@@ -1027,6 +1054,61 @@ function renderNotesScreen() {
     }
   });
   updatePagerBar();
+}
+async function deleteNote(note) {
+  try {
+    const { error } = await state.supabase
+      .from("notes")
+      .delete()
+      .eq("id", note.id)
+      .eq("created_by", state.user.id);
+    if (error) throw error;
+    showToast("Note deleted");
+    await loadNotes({ replace: true });
+    try { await loadBooks(); } catch {}
+    const bd = qs("#bookDetail");
+    if (bd && !bd.classList.contains("hidden")) {
+      const cur = state.bookDetailPagination?.bookId;
+      if (cur && String(note.book_id) === String(cur)) {
+        state.bookDetailNotes = (state.bookDetailNotes || []).filter((n) => String(n.id) !== String(note.id));
+        renderBookDetailNotes();
+      }
+    }
+  } catch (e) {
+    console.error(e);
+    showToast(e.message || "Permission denied or failed");
+  }
+}
+function openNoteEditModal(note) {
+  openOverlay("Edit Note", (content) => {
+    const card = el("div", "list-item");
+    const input = el("input"); input.value = note.title; input.placeholder = "Title";
+    const actions = el("div"); actions.style.display = "flex"; actions.style.gap = "8px";
+    const save = el("button", "primary-btn"); save.textContent = "Save";
+    const cancel = el("button", "icon-btn"); cancel.textContent = "Cancel";
+    actions.append(save, cancel);
+    card.append(input, actions);
+    content.append(card);
+    cancel.onclick = () => closeOverlay(true);
+    save.onclick = async () => {
+      const title = input.value.trim();
+      if (!title) { showToast("Title required"); return; }
+      try {
+        const { error } = await state.supabase
+          .from("notes")
+          .update({ title })
+          .eq("id", note.id)
+          .eq("created_by", state.user.id);
+        if (error) throw error;
+        closeOverlay(true);
+        showToast("Note updated");
+        await loadNotes({ replace: true });
+      } catch (e) {
+        console.error(e);
+        showToast(e.message || "Permission denied or failed");
+      }
+    };
+  }, true);
 }
 async function openNoteDetail(note, opts = {}) {
   qs("#noteDetail").classList.remove("hidden");
@@ -1165,6 +1247,26 @@ async function deleteParagraph(p) {
       .eq("author_id", state.user.id);
     if (error) throw error;
     showToast("Deleted");
+    const { count } = await state.supabase
+      .from("paragraphs")
+      .select("id", { count: "exact", head: true })
+      .eq("note_id", p.note_id);
+    if (!count || count === 0) {
+      try {
+        const { error: delNoteErr } = await state.supabase
+          .from("notes")
+          .delete()
+          .eq("id", p.note_id)
+          .eq("created_by", state.user.id);
+        if (!delNoteErr) {
+          showToast("Note deleted");
+          await loadNotes({ replace: true });
+          try { await loadBooks(); } catch {}
+          qs("#noteDetail").classList.add("hidden");
+          return;
+        }
+      } catch {}
+    }
     await loadParagraphs(p.note_id);
   } catch (e) {
     console.error(e);
@@ -1265,7 +1367,7 @@ function renderBooksScreen() {
   });
   if (!items.length && hasData) {
     const empty = el("div", "list-item skeleton");
-    empty.textContent = "No books found";
+    empty.textContent = "No notebooks found";
     list.appendChild(empty);
     return;
   }
@@ -1282,7 +1384,33 @@ function renderBooksScreen() {
     pin.onclick = (e) => { e.stopPropagation(); togglePin("books", book.id); renderBooksScreen(); };
     const tagBtn = el("button", "icon-btn"); tagBtn.textContent = "Tags";
     tagBtn.onclick = (e) => { e.stopPropagation(); openEditTags("books", book.id, book.title); };
-    item.append(title, meta, stat, pin, tagBtn);
+    const actionsBar = el("div", "list-item-actions");
+    const editBtn = el("button", "icon-btn"); editBtn.textContent = "Edit";
+    const deleteBtn = el("button", "icon-btn"); deleteBtn.textContent = "Delete";
+    editBtn.onclick = (e) => { e.stopPropagation(); openBookEditModal(book); };
+    deleteBtn.onclick = (e) => { e.stopPropagation(); deleteBook(book); };
+    actionsBar.append(editBtn, deleteBtn, tagBtn, pin);
+    const tagsRow = el("div", "chip-row");
+    const map = getTags("books"); const arr = map.get(String(book.id)) || [];
+    arr.forEach((t) => { const c = el("button", "chip"); c.textContent = t; tagsRow.appendChild(c); });
+    item.append(title, meta, stat, tagsRow, actionsBar);
+    let startX = 0; let dx = 0;
+    item.addEventListener("touchstart", (ev) => { startX = ev.touches[0].clientX; dx = 0; }, { passive: true });
+    item.addEventListener("touchmove", (ev) => { dx = ev.touches[0].clientX - startX; }, { passive: true });
+    item.addEventListener("touchend", () => {
+      if (Math.abs(dx) > 40) {
+        if (dx < 0) {
+          actionsBar.innerHTML = "";
+          const del = el("button", "primary-btn"); del.textContent = "Delete"; del.onclick = (e) => { e.stopPropagation(); deleteBook(book); };
+          actionsBar.append(del);
+        } else {
+          actionsBar.innerHTML = "";
+          const edit = el("button", "primary-btn"); edit.textContent = "Edit"; edit.onclick = (e) => { e.stopPropagation(); openBookEditModal(book); };
+          const tags = el("button", "icon-btn"); tags.textContent = "Tags"; tags.onclick = (e) => { e.stopPropagation(); openEditTags("books", book.id, book.title); };
+          actionsBar.append(edit, tags);
+        }
+      }
+    }, { passive: true });
     item.onclick = () => openBookDetail(book);
     list.appendChild(item);
     if (state.supabase) {
@@ -1298,6 +1426,60 @@ function renderBooksScreen() {
     }
   });
   updatePagerBar();
+}
+function openBookEditModal(book) {
+  openOverlay("Edit Notebook", (content) => {
+    const card = el("div", "list-item");
+    const inputTitle = el("input"); inputTitle.value = book.title; inputTitle.placeholder = "Title";
+    const inputDesc = el("input"); inputDesc.value = firstDefined(book, ["description", "desc", "summary"]) || ""; inputDesc.placeholder = "Description (optional)";
+    const actions = el("div"); actions.style.display = "flex"; actions.style.gap = "8px";
+    const save = el("button", "primary-btn"); save.textContent = "Save";
+    const cancel = el("button", "icon-btn"); cancel.textContent = "Cancel";
+    actions.append(save, cancel);
+    card.append(inputTitle, inputDesc, actions);
+    content.append(card);
+    cancel.onclick = () => closeOverlay(true);
+    save.onclick = async () => {
+      const title = inputTitle.value.trim();
+      const desc = inputDesc.value.trim();
+      if (!title) { showToast("Title required"); return; }
+      try {
+        const { error } = await state.supabase
+          .from("books")
+          .update({ title, description: desc })
+          .eq("id", book.id)
+          .eq("family_id", state.familyId);
+        if (error) throw error;
+        closeOverlay(true);
+        showToast("Notebook updated");
+        await loadBooks();
+      } catch (e) {
+        console.error(e);
+        showToast(e.message || "Update failed");
+      }
+    };
+  }, true);
+}
+async function deleteBook(book) {
+  if (!confirm("Delete this notebook?")) return;
+  try {
+    const { error } = await state.supabase
+      .from("books")
+      .delete()
+      .eq("id", book.id)
+      .eq("family_id", state.familyId);
+    if (error) throw error;
+    showToast("Notebook deleted");
+    await loadBooks();
+    const bd = qs("#bookDetail");
+    if (bd && !bd.classList.contains("hidden")) {
+      qs("#bookDetail").classList.add("hidden");
+      history.back();
+    }
+  } catch (e) {
+    console.error(e);
+    showToast(e.message || "Delete failed");
+  }
 }
 function openBookDetail(book) {
   qs("#bookDetail").classList.remove("hidden");
@@ -2355,7 +2537,7 @@ function bindUI() {
     const title = state.authMode === "manager" ? "Manager" : "Member";
     const desc = state.authMode === "manager"
       ? "Managers can create families, approve join requests, and manage shared content."
-      : "Members can join a family and collaborate on notes, books, activities, and chat.";
+      : "Members can join a family and collaborate on notes, notebooks, activities, and chat.";
     const info = qs("#authRoleInfo");
     const t = qs("#authRoleTitle");
     const d = qs("#authRoleDesc");
@@ -2758,7 +2940,7 @@ function linkify(text) {
 function openQuickSwitcher() {
   openOverlay("Quick Switcher", (content) => {
     const input = el("input");
-    input.placeholder = "Search notes, books, activities, members…";
+    input.placeholder = "Search notes, notebooks, activities, members…";
     input.style.width = "100%";
     input.style.marginBottom = "8px";
     const list = el("div", "list");
