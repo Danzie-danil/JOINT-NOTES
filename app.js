@@ -252,10 +252,13 @@ function setRoute(name) {
 /* =========================================
    Supabase setup
 ========================================= */
+// Inline Supabase configuration (moved from index.html)
+window.SUPABASE_URL = window.SUPABASE_URL || "https://mytmflohqerffpnweugh.supabase.co";
+window.SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im15dG1mbG9ocWVyZmZwbndldWdoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU1MTQxNDAsImV4cCI6MjA4MTA5MDE0MH0.k0PeRXs7Va0JQEESpIl88G9ReXJbXAI_5hXoy7YQ5Fg";
 function getSupabaseConfig() {
-  const metaUrl = document.querySelector('meta[name="supabase-url"]')?.content?.trim();
-  const metaAnon = document.querySelector('meta[name="supabase-anon"]')?.content?.trim();
-  if (metaUrl && metaAnon) return { url: metaUrl, anon: metaAnon };
+  const globalUrl = window.SUPABASE_URL;
+  const globalAnon = window.SUPABASE_ANON_KEY;
+  if (globalUrl && globalAnon) return { url: globalUrl, anon: globalAnon };
   const raw = localStorage.getItem(STORAGE_KEYS.supabase);
   if (!raw) return null;
   try { return JSON.parse(raw); } catch { return null; }
