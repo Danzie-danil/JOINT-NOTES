@@ -1,15 +1,10 @@
 const CACHE_NAME = "joint-notes-pwa-v2";
 const ASSETS = [
-  "/",
-  "/index.html",
-  "/styles.css",
-  "/app.js",
-  "/manifest.webmanifest",
-  "/Joint Notes logo.png",
-  "/icons/icon-192.png",
-  "/icons/icon-512.png",
-  "/icons/icon-192-maskable.png",
-  "/icons/icon-512-maskable.png"
+  "./index.html",
+  "./styles.css",
+  "./app.js",
+  "./manifest.webmanifest",
+  "./Joint Notes logo.png"
 ];
 
 self.addEventListener("install", (event) => {
@@ -31,6 +26,20 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET") return;
+  const APP_SHELL_URL = new URL("./index.html", self.location).href;
+  if (req.mode === "navigate") {
+    event.respondWith((async () => {
+      const cached = await caches.match(APP_SHELL_URL);
+      if (cached) return cached;
+      try {
+        const res = await fetch(APP_SHELL_URL);
+        return res;
+      } catch {
+        return cached || Response.error();
+      }
+    })());
+    return;
+  }
   event.respondWith((async () => {
     try {
       const res = await fetch(req);
@@ -40,10 +49,10 @@ self.addEventListener("fetch", (event) => {
         return res;
       }
       const cached = await caches.match(req);
-      return cached || (await caches.match("/index.html")) || res;
+      return cached || (await caches.match(APP_SHELL_URL)) || res;
     } catch {
       const cached = await caches.match(req);
-      return cached || (await caches.match("/index.html"));
+      return cached || (await caches.match(APP_SHELL_URL));
     }
   })());
 });
