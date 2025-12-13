@@ -119,6 +119,14 @@ async function registerServiceWorker() {
     }
   }
 }
+function isStandalone() {
+  return window.matchMedia && window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+}
+let deferredInstallPrompt = null;
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+});
 
 /* =========================================
    Drawer
@@ -255,7 +263,9 @@ function getSupabaseConfig() {
 function ensureSupabaseConfigured() {
   const cfg = getSupabaseConfig();
   if (cfg && cfg.url && cfg.anon) {
-    state.supabase = supabase.createClient(cfg.url, cfg.anon);
+    state.supabase = supabase.createClient(cfg.url, cfg.anon, {
+      auth: { persistSession: true, autoRefreshToken: true }
+    });
     return true;
   }
   return false;
@@ -303,44 +313,55 @@ function showMainApp() {
   setRoute("notes");
 }
 async function attemptAuthBootstrap() {
-  if (!state.supabase) return;
-  const { data } = await state.supabase.auth.getSession();
-  state.session = data.session || null;
-  state.user = state.session?.user || null;
-  if (!state.session) {
-    showAuthScreen();
-  } else {
-    showMainApp();
-    await upsertProfile();
-    await postLoginInit();
-    const pending = localStorage.getItem("pwa.pendingJoinCode");
-    if (pending) {
-      await joinFamilyByCode(pending);
-      localStorage.removeItem("pwa.pendingJoinCode");
-    }
-    startSessionPoll();
-  }
-  state.supabase.auth.onAuthStateChange((evt, session) => {
-    state.session = session || null;
-    state.user = session?.user || null;
-    if (evt === "PASSWORD_RECOVERY") {
-      openSetNewPassword();
-      return;
-    }
-    if (state.user) {
+  if (state.supabase) {
+    const { data } = await state.supabase.auth.getSession();
+    state.session = data.session || null;
+    state.user = state.session?.user || null;
+    if (!state.session) {
+      showAuthScreen();
+    } else {
       showMainApp();
-      upsertProfile().then(postLoginInit);
+      await upsertProfile();
+      await postLoginInit();
       const pending = localStorage.getItem("pwa.pendingJoinCode");
       if (pending) {
-        joinFamilyByCode(pending).then(() => {
-          localStorage.removeItem("pwa.pendingJoinCode");
-        });
+        await joinFamilyByCode(pending);
+        localStorage.removeItem("pwa.pendingJoinCode");
       }
       startSessionPoll();
+    }
+    state.supabase.auth.onAuthStateChange((evt, session) => {
+      state.session = session || null;
+      state.user = session?.user || null;
+      if (evt === "PASSWORD_RECOVERY") {
+        openSetNewPassword();
+        return;
+      }
+      if (state.user) {
+        showMainApp();
+        upsertProfile().then(postLoginInit);
+        const pending = localStorage.getItem("pwa.pendingJoinCode");
+        if (pending) {
+          joinFamilyByCode(pending).then(() => {
+            localStorage.removeItem("pwa.pendingJoinCode");
+          });
+        }
+        startSessionPoll();
+      } else {
+        showAuthScreen();
+      }
+    });
+  } else {
+    const localSess = getLocalSession();
+    if (localSess?.user) {
+      state.session = localSess;
+      state.user = localSess.user;
+      showMainApp();
+      await postLoginInit();
     } else {
       showAuthScreen();
     }
-  });
+  }
 }
 
 /* =========================================
@@ -2103,6 +2124,24 @@ function bindUI() {
   };
   const compactBtn = qs("#btnCompactMode");
   if (compactBtn) compactBtn.onclick = () => { document.body.classList.toggle("compact-mode"); closeDrawer(); };
+  const installBtn = qs("#btnInstall");
+  if (installBtn) installBtn.onclick = async () => {
+    closeDrawer();
+    if (deferredInstallPrompt) {
+      deferredInstallPrompt.prompt();
+      const choice = await deferredInstallPrompt.userChoice;
+      deferredInstallPrompt = null;
+      showToast(choice.outcome === "accepted" ? "Install started" : "Install dismissed");
+    } else {
+      openOverlay("Install App", (content) => {
+        const card = el("div", "list-item");
+        const p = el("div", "preview");
+        p.textContent = "On iOS: Safari → Share → Add to Home Screen. On Android/Desktop (Chrome/Edge): Use the browser menu or the install icon in the address bar.";
+        card.append(p);
+        content.append(card);
+      }, true);
+    }
+  };
   const logoutBtn = qs("#btnLogout");
   if (logoutBtn) logoutBtn.onclick = async () => { await doLogout(); closeDrawer(); };
   // Auth
@@ -2188,27 +2227,29 @@ function bindUI() {
     const map = {
       login: "#authLoginForm",
       register: "#authRegisterForm",
-      magic: "#authMagicForm",
       reset: "#authResetForm",
     };
     Object.values(map).forEach((sel) => qs(sel).classList.add("hidden"));
     qs(map[action]).classList.remove("hidden");
-    actionLoginBtn.classList.toggle("seg-btn--active", action === "login");
-    actionRegisterBtn.classList.toggle("seg-btn--active", action === "register");
-    actionMagicBtn.classList.toggle("seg-btn--active", action === "magic");
-    actionResetBtn.classList.toggle("seg-btn--active", action === "reset");
+    if (actionLoginBtn) actionLoginBtn.classList.toggle("seg-btn--active", action === "login");
+    if (actionRegisterBtn) actionRegisterBtn.classList.toggle("seg-btn--active", action === "register");
+    if (actionMagicBtn) actionMagicBtn.classList.toggle("seg-btn--active", action === "magic");
+    if (actionResetBtn) actionResetBtn.classList.toggle("seg-btn--active", action === "reset");
   }
-  actionLoginBtn.onclick = () => setAuthAction("login");
-  actionRegisterBtn.onclick = () => setAuthAction("register");
-  actionMagicBtn.onclick = () => setAuthAction("magic");
-  actionResetBtn.onclick = () => setAuthAction("reset");
-  setAuthAction("login");
+  if (actionLoginBtn) actionLoginBtn.onclick = () => setAuthAction("login");
+  if (actionRegisterBtn) actionRegisterBtn.onclick = () => setAuthAction("register");
+  if (actionMagicBtn) actionMagicBtn.onclick = () => setAuthAction("magic");
+  if (actionResetBtn) actionResetBtn.onclick = () => setAuthAction("reset");
+  ["#authLoginForm", "#authRegisterForm", "#authResetForm"].forEach((sel) => qs(sel).classList.add("hidden"));
   // Local auth fallbacks
   function localUsers() {
     try { return JSON.parse(localStorage.getItem("pwa.local.users") || "[]"); } catch { return []; }
   }
   function saveLocalUsers(users) {
     localStorage.setItem("pwa.local.users", JSON.stringify(users));
+  }
+  function getLocalSession() {
+    try { return JSON.parse(localStorage.getItem("pwa.local.session") || "null"); } catch { return null; }
   }
   function localSignIn(email, password) {
     const users = localUsers();
@@ -2303,10 +2344,34 @@ function bindUI() {
   function reflectMode() {
     modeMemberBtn?.classList.toggle("seg-btn--active", state.authMode === "member");
     modeManagerBtn?.classList.toggle("seg-btn--active", state.authMode === "manager");
+    showRoleInfo();
   }
   reflectMode();
   modeMemberBtn && (modeMemberBtn.onclick = () => { setAuthMode("member"); reflectMode(); });
   modeManagerBtn && (modeManagerBtn.onclick = () => { setAuthMode("manager"); reflectMode(); });
+  const forgotBtn = qs("#btnForgotPassword");
+  if (forgotBtn) forgotBtn.onclick = () => setAuthAction("reset");
+  function showRoleInfo() {
+    const title = state.authMode === "manager" ? "Manager" : "Member";
+    const desc = state.authMode === "manager"
+      ? "Managers can create families, approve join requests, and manage shared content."
+      : "Members can join a family and collaborate on notes, books, activities, and chat.";
+    const info = qs("#authRoleInfo");
+    const t = qs("#authRoleTitle");
+    const d = qs("#authRoleDesc");
+    const actionToggle = qs("#authActionToggle");
+    ["#authLoginForm", "#authRegisterForm", "#authResetForm"].forEach((sel) => qs(sel).classList.add("hidden"));
+    actionToggle.classList.add("hidden");
+    t.textContent = title;
+    d.textContent = desc;
+    info.classList.remove("hidden");
+    const contBtn = qs("#authRoleContinueBtn");
+    contBtn.onclick = () => {
+      info.classList.add("hidden");
+      actionToggle.classList.remove("hidden");
+      setAuthAction("login");
+    };
+  }
   // Notes
   qs("#btnNewNote").onclick = openNewNoteModal;
   // Books
@@ -2653,7 +2718,9 @@ async function tryFetchConfig() {
     const cfg = await res.json();
     if (cfg?.url && cfg?.anon) {
       localStorage.setItem(STORAGE_KEYS.supabase, JSON.stringify(cfg));
-      state.supabase = supabase.createClient(cfg.url, cfg.anon);
+      state.supabase = supabase.createClient(cfg.url, cfg.anon, {
+        auth: { persistSession: true, autoRefreshToken: true }
+      });
       return true;
     }
     return false;

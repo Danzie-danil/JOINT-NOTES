@@ -75,6 +75,7 @@ body.compact-mode #app { max-width: 420px; margin: 0 auto; border-left: 1px soli
   overflow: hidden;
 }
 .icon-btn, .primary-btn, .text-btn { display: inline-flex; align-items: center; justify-content: center; max-width: 100%; min-width: 0; }
+#btnSync { font-weight: 800; }
 .text-btn {
   background: transparent;
   color: var(--accent);
@@ -307,6 +308,7 @@ body.compact-mode #app { max-width: 420px; margin: 0 auto; border-left: 1px soli
   display: flex;
   gap: 6px;
   margin-bottom: 6px;
+  flex-wrap: wrap;
 }
 .editor-input {
   min-height: 80px;
@@ -317,9 +319,10 @@ body.compact-mode #app { max-width: 420px; margin: 0 auto; border-left: 1px soli
 }
 .editor-input { overflow-wrap: anywhere; word-break: break-word; }
 .editor-actions {
-  display: flex;
-  justify-content: flex-end;
+  display: grid;
+  grid-template-columns: 1fr auto;
   margin-top: 8px;
+  gap: 8px;
 }
 
 .bottom-tabs {
@@ -432,10 +435,12 @@ body.compact-mode #app { max-width: 420px; margin: 0 auto; border-left: 1px soli
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 14px;
+  display: grid;
+  gap: 12px;
 }
 .seg-toggle {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
   margin-bottom: 10px;
 }
@@ -445,14 +450,20 @@ body.compact-mode #app { max-width: 420px; margin: 0 auto; border-left: 1px soli
   color: var(--text);
   padding: 8px 10px;
   border-radius: var(--radius);
+  width: 100%;
 }
 .seg-btn.seg-btn--active {
   background: color-mix(in oklab, var(--accent), black 85%);
   border-color: color-mix(in oklab, var(--accent), black 75%);
 }
 .auth-form.hidden { display: none; }
-.auth-title { font-weight: 800; font-size: 20px; margin-bottom: 4px; }
+.auth-title { font-weight: 800; font-size: 20px; margin-bottom: 4px; text-align: center; }
+.auth-card .auth-subtitle { text-align: center; }
+.auth-role-info { text-align: center; }
+#authRoleTitle { text-align: center; }
+#authRoleDesc { text-align: center; }
 .auth-subtitle { color: var(--muted); margin-bottom: 12px; }
+.auth-form { display: grid; gap: 8px; }
 .auth-form { display: grid; gap: 8px; }
 .auth-form input {
   width: 100%;
@@ -462,6 +473,7 @@ body.compact-mode #app { max-width: 420px; margin: 0 auto; border-left: 1px soli
   background: var(--bg);
   color: var(--text);
 }
+.auth-form button { width: 100%; }
 .search-input {
   width: 40%;
   min-width: 140px;
@@ -471,7 +483,7 @@ body.compact-mode #app { max-width: 420px; margin: 0 auto; border-left: 1px soli
   background: var(--bg);
   color: var(--text);
 }
-.auth-actions { display: flex; gap: 8px; margin-top: 8px; }
+.auth-actions { display: grid; grid-template-columns: 1fr; gap: 8px; margin-top: 8px; }
 
 .messages {
   display: grid;
@@ -613,9 +625,18 @@ button, input, select, textarea {
   .list { gap: 10px; }
   .list-item { padding: 10px; }
   .tab-label { font-size: 12px; }
+  .seg-toggle { grid-template-columns: 1fr; }
+  .editor-actions { grid-template-columns: 1fr; }
+  #btnSync { font-size: 18px; }
 }
 @media (max-width: 480px) {
   .chip { font-size: 11px; padding: 3px 7px; }
   .tab-label { font-size: 11px; }
   .modal-content { width: min(96vw, 520px); }
+  .auth-actions { grid-template-columns: 1fr; }
+}
+@media all and (display-mode: standalone) {
+  .app-header { padding-top: calc(12px + env(safe-area-inset-top)); }
+  .bottom-tabs { padding-bottom: env(safe-area-inset-bottom); }
+  .screens { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
 }
