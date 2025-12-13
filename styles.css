@@ -324,7 +324,7 @@ body.compact-mode #app { max-width: 420px; margin: 0 auto; border-left: 1px soli
   padding: 6px 4px;
 }
 .editor-input {
-  min-height: clamp(180px, 40vh, 600px);
+  min-height: clamp(140px, 34vh, 520px);
   outline: none;
   padding: 8px;
   border-radius: var(--radius);

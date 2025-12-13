@@ -263,6 +263,9 @@ function getSupabaseConfig() {
   if (!raw) return null;
   try { return JSON.parse(raw); } catch { return null; }
 }
+function getLocalSession() {
+  try { return JSON.parse(localStorage.getItem("pwa.local.session") || "null"); } catch { return null; }
+}
 function extractProjectRef(url) {
   try {
     const u = new URL(url);
@@ -286,7 +289,10 @@ function purgeStaleSupabaseSessions() {
 function ensureSupabaseConfigured() {
   const cfg = getSupabaseConfig();
   if (cfg && cfg.url && cfg.anon) {
-    state.supabase = supabase.createClient(cfg.url, cfg.anon, {
+    if (!window.supabase || typeof window.supabase.createClient !== "function") {
+      return false;
+    }
+    state.supabase = window.supabase.createClient(cfg.url, cfg.anon, {
       auth: { persistSession: true, autoRefreshToken: true }
     });
     return true;
@@ -1664,11 +1670,93 @@ function renderActivitiesScreen() {
     pin.onclick = (e) => { e.stopPropagation(); togglePin("activities", a.id); renderActivitiesScreen(); };
     const tagBtn = el("button", "icon-btn"); tagBtn.textContent = "Tags";
     tagBtn.onclick = (e) => { e.stopPropagation(); openEditTags("activities", a.id, a.title); };
-    item.append(title, meta, prev, pin, tagBtn);
+    const actionsBar = el("div", "list-item-actions");
+    const editBtn = el("button", "icon-btn"); editBtn.textContent = "Edit";
+    const deleteBtn = el("button", "icon-btn"); deleteBtn.textContent = "Delete";
+    editBtn.onclick = (e) => { e.stopPropagation(); openActivityEditModal(a); };
+    deleteBtn.onclick = (e) => { e.stopPropagation(); deleteActivity(a); };
+    actionsBar.append(editBtn, deleteBtn, tagBtn, pin);
+    const tagsRow = el("div", "chip-row");
+    const map = getTags("activities"); const arr = map.get(String(a.id)) || [];
+    arr.forEach((t) => { const c = el("button", "chip"); c.textContent = t; tagsRow.appendChild(c); });
+    item.append(title, meta, prev, tagsRow, actionsBar);
+    let startX = 0; let dx = 0;
+    item.addEventListener("touchstart", (ev) => { startX = ev.touches[0].clientX; dx = 0; }, { passive: true });
+    item.addEventListener("touchmove", (ev) => { dx = ev.touches[0].clientX - startX; }, { passive: true });
+    item.addEventListener("touchend", () => {
+      if (Math.abs(dx) > 40) {
+        if (dx < 0) {
+          actionsBar.innerHTML = "";
+          const del = el("button", "primary-btn"); del.textContent = "Delete"; del.onclick = (e) => { e.stopPropagation(); deleteActivity(a); };
+          actionsBar.append(del);
+        } else {
+          actionsBar.innerHTML = "";
+          const edit = el("button", "primary-btn"); edit.textContent = "Edit"; edit.onclick = (e) => { e.stopPropagation(); openActivityEditModal(a); };
+          const tags = el("button", "icon-btn"); tags.textContent = "Tags"; tags.onclick = (e) => { e.stopPropagation(); openEditTags("activities", a.id, a.title); };
+          actionsBar.append(edit, tags);
+        }
+      }
+    }, { passive: true });
     item.onclick = () => openActivityDetail(a);
     list.appendChild(item);
   });
   updatePagerBar();
+}
+function openActivityEditModal(a) {
+  openOverlay("Edit Activity", (content) => {
+    const card = el("div", "list-item");
+    const inputTitle = el("input"); inputTitle.value = a.title; inputTitle.placeholder = "Title";
+    const inputDesc = el("input"); inputDesc.value = firstDefined(a, ["description", "details", "desc"]) || ""; inputDesc.placeholder = "Description (optional)";
+    const inputDate = el("input"); inputDate.type = "datetime-local"; inputDate.value = formatDateTimeLocal(new Date(a.datetime));
+    const inputLoc = el("input"); inputLoc.value = a.location || ""; inputLoc.placeholder = "Location (optional)";
+    const actions = el("div"); actions.style.display = "flex"; actions.style.gap = "8px";
+    const save = el("button", "primary-btn"); save.textContent = "Save";
+    const cancel = el("button", "icon-btn"); cancel.textContent = "Cancel";
+    actions.append(save, cancel);
+    card.append(inputTitle, inputDesc, inputDate, inputLoc, actions);
+    content.append(card);
+    cancel.onclick = () => closeOverlay(true);
+    save.onclick = async () => {
+      const title = inputTitle.value.trim();
+      if (!title) { showToast("Title required"); return; }
+      try {
+        const payload = {
+          title,
+          description: inputDesc.value.trim(),
+          datetime: new Date(inputDate.value).toISOString(),
+          location: inputLoc.value.trim(),
+        };
+        const { error } = await state.supabase
+          .from("activities")
+          .update(payload)
+          .eq("id", a.id)
+          .eq("family_id", state.familyId);
+        if (error) throw error;
+        closeOverlay(true);
+        showToast("Activity updated");
+        await loadActivities({ replace: true, page: 0 });
+      } catch (e) {
+        console.error(e);
+        showToast(e.message || "Update failed");
+      }
+    };
+  }, true);
+}
+async function deleteActivity(a) {
+  if (!confirm("Delete this activity?")) return;
+  try {
+    const { error } = await state.supabase
+      .from("activities")
+      .delete()
+      .eq("id", a.id)
+      .eq("family_id", state.familyId);
+    if (error) throw error;
+    showToast("Activity deleted");
+    await loadActivities({ replace: true, page: 0 });
+  } catch (e) {
+    console.error(e);
+    showToast(e.message || "Delete failed");
+  }
 }
 async function openActivityDetail(a) {
   qs("#activityDetail").classList.remove("hidden");
@@ -2927,7 +3015,7 @@ async function tryFetchConfig() {
     const cfg = await res.json();
     if (cfg?.url && cfg?.anon) {
       localStorage.setItem(STORAGE_KEYS.supabase, JSON.stringify(cfg));
-      state.supabase = supabase.createClient(cfg.url, cfg.anon, {
+      state.supabase = window.supabase.createClient(cfg.url, cfg.anon, {
         auth: { persistSession: true, autoRefreshToken: true }
       });
       return true;
