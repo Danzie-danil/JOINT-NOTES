@@ -29,12 +29,15 @@ self.addEventListener("fetch", (event) => {
   const APP_SHELL_URL = new URL("./index.html", self.location).href;
   if (req.mode === "navigate") {
     event.respondWith((async () => {
-      const cached = await caches.match(APP_SHELL_URL);
-      if (cached) return cached;
       try {
-        const res = await fetch(APP_SHELL_URL);
+        const res = await fetch(APP_SHELL_URL, { cache: "no-store" });
+        if (res && res.ok) {
+          const copy = res.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(APP_SHELL_URL, copy));
+        }
         return res;
       } catch {
+        const cached = await caches.match(APP_SHELL_URL);
         return cached || Response.error();
       }
     })());

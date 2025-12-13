@@ -286,6 +286,16 @@ function purgeStaleSupabaseSessions() {
     });
   } catch {}
 }
+function purgeLocalDataCaches() {
+  try {
+    const keys = Object.keys(localStorage);
+    keys.forEach((k) => {
+      if (k.startsWith("pwa.cache.")) {
+        localStorage.removeItem(k);
+      }
+    });
+  } catch {}
+}
 function ensureSupabaseConfigured() {
   const cfg = getSupabaseConfig();
   if (cfg && cfg.url && cfg.anon) {
@@ -3097,6 +3107,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   window.addEventListener("online", flushSendQueue);
   initReminderWatcher();
   await waitForSupabaseClient(3500);
+  purgeLocalDataCaches();
   purgeStaleSupabaseSessions();
   await bootstrapSupabase();
   attemptAuthBootstrap();
