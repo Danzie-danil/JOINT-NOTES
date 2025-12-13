@@ -2592,6 +2592,18 @@ function bindUI() {
       btn.disabled = false;
     }
   };
+  const eye = qs("#btnTogglePassword");
+  if (eye) {
+    const eyeSvg = (hidden) => '<svg viewBox="0 0 24 24" fill="none"><path d="M2.458 12C3.732 7.943 7.523 5 12 5s8.268 2.943 9.542 7c-1.274 4.057-5.065 7-9.542 7s-8.268-2.943-9.542-7z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>' + (hidden ? '<path d="M4 4L20 20" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>' : '') + '</svg>';
+    const inp = qs("#authPassword");
+    if (inp) eye.innerHTML = eyeSvg(true);
+    eye.onclick = () => {
+      if (!inp) return;
+      const vis = inp.type === "text";
+      inp.type = vis ? "password" : "text";
+      eye.innerHTML = eyeSvg(!vis);
+    };
+  }
   const actionLoginBtn = qs("#authActionLoginBtn");
   const actionRegisterBtn = qs("#authActionRegisterBtn");
   const actionMagicBtn = qs("#authActionMagicBtn");

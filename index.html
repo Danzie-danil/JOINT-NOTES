@@ -90,7 +90,10 @@
             </div>
             <form id="authLoginForm" class="auth-form hidden">
               <input type="email" id="authEmail" placeholder="Email" autocomplete="email" required />
-              <input type="password" id="authPassword" placeholder="Password" autocomplete="current-password" required />
+              <div class="input-with-icon">
+                <input type="password" id="authPassword" placeholder="Password" autocomplete="current-password" required />
+                <button type="button" class="input-icon-btn" id="btnTogglePassword" aria-label="Show or hide password"></button>
+              </div>
               <button type="submit" class="primary-btn" id="btnSignIn">Sign In</button>
               <button type="button" class="text-btn" id="btnForgotPassword">Forgot password?</button>
             </form>
