@@ -1094,17 +1094,24 @@ function renderNotesScreen() {
 }
 async function deleteNote(note) {
   try {
-    const { error } = await state.supabase
+    state.notes = (state.notes || []).filter((n) => n.id !== note.id);
+    renderNotesScreen();
+    let { error } = await state.supabase
       .from("notes")
       .delete()
       .eq("id", note.id)
       .eq("created_by", state.user.id);
+    if (error && /42703/.test(String(error.code || ""))) {
+      const { error: e2 } = await state.supabase.from("notes").delete().eq("id", note.id);
+      error = e2;
+    }
     if (error) throw error;
     showToast("Note deleted");
     await loadNotes({ replace: true });
   } catch (e) {
     console.error(e);
     showToast(e.message || "Permission denied or failed");
+    await loadNotes({ replace: true });
   }
 }
 function openNoteEditModal(note) {
@@ -1132,8 +1139,25 @@ function openNoteEditModal(note) {
         showToast("Note updated");
         await loadNotes({ replace: true });
       } catch (e) {
-        console.error(e);
-        showToast(e.message || "Permission denied or failed");
+        try {
+          if (/42703/.test(String(e.code || ""))) {
+            const { error: e2 } = await state.supabase
+              .from("notes")
+              .update({ title })
+              .eq("id", note.id);
+            if (!e2) {
+              closeOverlay(true);
+              showToast("Note updated");
+              await loadNotes({ replace: true });
+              return;
+            }
+          }
+          console.error(e);
+          showToast(e.message || "Permission denied or failed");
+        } catch (e3) {
+          console.error(e3);
+          showToast("Update failed");
+        }
       }
     };
   }, true);
@@ -1494,6 +1518,11 @@ function openBookEditModal(book) {
 async function deleteBook(book) {
   if (!confirm("Delete this book?")) return;
   try {
+    const removingIds = new Set((state.notes || []).filter((n) => n.book_id === book.id).map((n) => n.id));
+    state.notes = (state.notes || []).filter((n) => !removingIds.has(n.id));
+    state.books = (state.books || []).filter((b) => b.id !== book.id);
+    renderBooksScreen();
+    renderNotesScreen();
     const { error } = await state.supabase
       .from("books")
       .delete()
@@ -1501,10 +1530,11 @@ async function deleteBook(book) {
       .eq("family_id", state.familyId);
     if (error) throw error;
     showToast("Book deleted");
-    await loadBooks();
+    await Promise.all([loadBooks(), loadNotes({ replace: true })]);
   } catch (e) {
     console.error(e);
     showToast(e.message || "Delete failed");
+    await Promise.all([loadBooks(), loadNotes({ replace: true })]);
   }
 }
 function openBookDetail(book) {
@@ -1753,6 +1783,8 @@ function openActivityEditModal(a) {
 async function deleteActivity(a) {
   if (!confirm("Delete this activity?")) return;
   try {
+    state.activities = (state.activities || []).filter((x) => x.id !== a.id);
+    renderActivitiesScreen();
     const { error } = await state.supabase
       .from("activities")
       .delete()
@@ -1764,6 +1796,7 @@ async function deleteActivity(a) {
   } catch (e) {
     console.error(e);
     showToast(e.message || "Delete failed");
+    await loadActivities({ replace: true, page: 0 });
   }
 }
 async function openActivityDetail(a) {
