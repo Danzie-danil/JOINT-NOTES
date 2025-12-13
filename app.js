@@ -238,7 +238,7 @@ function setRoute(name) {
   qsa(".screen").forEach((s) => s.classList.remove("screen--active"));
   qs(`#screen-${name}`).classList.add("screen--active");
   qsa(".tab").forEach((t) => t.classList.toggle("active", t.dataset.route === name));
-  qs("#headerTitle").textContent = name === "books" ? "Notebook" : (name[0].toUpperCase() + name.slice(1));
+  qs("#headerTitle").textContent = name[0].toUpperCase() + name.slice(1);
   const tabs = qsa(".tab");
   const idx = tabs.findIndex((t) => t.dataset.route === name);
   const root = qs(".bottom-tabs");
@@ -999,7 +999,7 @@ function renderNotesScreen() {
     const title = el("div", "title");
     title.textContent = note.title;
     const meta = el("div", "meta");
-    meta.textContent = `Notebook: ${state.books.find((b) => b.id === note.book_id)?.title || "—"} `;
+    meta.textContent = `Book: ${state.books.find((b) => b.id === note.book_id)?.title || "—"} `;
     const preview = el("div", "preview");
     preview.textContent = state.supabase ? "Loading preview…" : (note.preview || "—");
     const pin = el("button", "icon-btn");
@@ -1065,15 +1065,6 @@ async function deleteNote(note) {
     if (error) throw error;
     showToast("Note deleted");
     await loadNotes({ replace: true });
-    try { await loadBooks(); } catch {}
-    const bd = qs("#bookDetail");
-    if (bd && !bd.classList.contains("hidden")) {
-      const cur = state.bookDetailPagination?.bookId;
-      if (cur && String(note.book_id) === String(cur)) {
-        state.bookDetailNotes = (state.bookDetailNotes || []).filter((n) => String(n.id) !== String(note.id));
-        renderBookDetailNotes();
-      }
-    }
   } catch (e) {
     console.error(e);
     showToast(e.message || "Permission denied or failed");
@@ -1261,7 +1252,6 @@ async function deleteParagraph(p) {
         if (!delNoteErr) {
           showToast("Note deleted");
           await loadNotes({ replace: true });
-          try { await loadBooks(); } catch {}
           qs("#noteDetail").classList.add("hidden");
           return;
         }
@@ -1367,7 +1357,7 @@ function renderBooksScreen() {
   });
   if (!items.length && hasData) {
     const empty = el("div", "list-item skeleton");
-    empty.textContent = "No notebooks found";
+    empty.textContent = "No books found";
     list.appendChild(empty);
     return;
   }
@@ -1428,7 +1418,7 @@ function renderBooksScreen() {
   updatePagerBar();
 }
 function openBookEditModal(book) {
-  openOverlay("Edit Notebook", (content) => {
+  openOverlay("Edit Book", (content) => {
     const card = el("div", "list-item");
     const inputTitle = el("input"); inputTitle.value = book.title; inputTitle.placeholder = "Title";
     const inputDesc = el("input"); inputDesc.value = firstDefined(book, ["description", "desc", "summary"]) || ""; inputDesc.placeholder = "Description (optional)";
@@ -1441,17 +1431,17 @@ function openBookEditModal(book) {
     cancel.onclick = () => closeOverlay(true);
     save.onclick = async () => {
       const title = inputTitle.value.trim();
-      const desc = inputDesc.value.trim();
+      const description = inputDesc.value.trim();
       if (!title) { showToast("Title required"); return; }
       try {
         const { error } = await state.supabase
           .from("books")
-          .update({ title, description: desc })
+          .update({ title, description })
           .eq("id", book.id)
           .eq("family_id", state.familyId);
         if (error) throw error;
         closeOverlay(true);
-        showToast("Notebook updated");
+        showToast("Book updated");
         await loadBooks();
       } catch (e) {
         console.error(e);
@@ -1461,7 +1451,7 @@ function openBookEditModal(book) {
   }, true);
 }
 async function deleteBook(book) {
-  if (!confirm("Delete this notebook?")) return;
+  if (!confirm("Delete this book?")) return;
   try {
     const { error } = await state.supabase
       .from("books")
@@ -1469,13 +1459,8 @@ async function deleteBook(book) {
       .eq("id", book.id)
       .eq("family_id", state.familyId);
     if (error) throw error;
-    showToast("Notebook deleted");
+    showToast("Book deleted");
     await loadBooks();
-    const bd = qs("#bookDetail");
-    if (bd && !bd.classList.contains("hidden")) {
-      qs("#bookDetail").classList.add("hidden");
-      history.back();
-    }
   } catch (e) {
     console.error(e);
     showToast(e.message || "Delete failed");
@@ -2537,7 +2522,7 @@ function bindUI() {
     const title = state.authMode === "manager" ? "Manager" : "Member";
     const desc = state.authMode === "manager"
       ? "Managers can create families, approve join requests, and manage shared content."
-      : "Members can join a family and collaborate on notes, notebooks, activities, and chat.";
+      : "Members can join a family and collaborate on notes, books, activities, and chat.";
     const info = qs("#authRoleInfo");
     const t = qs("#authRoleTitle");
     const d = qs("#authRoleDesc");
@@ -2940,7 +2925,7 @@ function linkify(text) {
 function openQuickSwitcher() {
   openOverlay("Quick Switcher", (content) => {
     const input = el("input");
-    input.placeholder = "Search notes, notebooks, activities, members…";
+    input.placeholder = "Search notes, books, activities, members…";
     input.style.width = "100%";
     input.style.marginBottom = "8px";
     const list = el("div", "list");
