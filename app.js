@@ -299,6 +299,14 @@ function ensureSupabaseConfigured() {
   }
   return false;
 }
+async function waitForSupabaseClient(ms = 3000) {
+  const start = Date.now();
+  while (Date.now() - start < ms) {
+    if (window.supabase && typeof window.supabase.createClient === "function") return true;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  return !!(window.supabase && typeof window.supabase.createClient === "function");
+}
 function showSupabaseConfigModal() {
   openOverlay("Supabase Configuration", (content) => {
     const card = el("div", "list-item");
@@ -2439,8 +2447,8 @@ function bindUI() {
       const { error } = await state.supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
       showToast("Signed in");
-    } catch {
-      showToast("Sign in failed");
+    } catch (err) {
+      showToast(err?.message || "Sign in failed");
     } finally {
       btn.disabled = false;
     }
@@ -2560,10 +2568,19 @@ function bindUI() {
       const btn = qs("#btnSignIn"); btn.disabled = true;
       try {
         if (!state.supabase) {
-          localSignIn(email, password);
-          showMainApp();
-          await postLoginInit();
-          showToast("Signed in (local)");
+          const users = localUsers();
+          if (!users.length) {
+            showToast("Cloud not configured. Set Supabase in Menu → Supabase Configuration");
+            return;
+          }
+          try {
+            localSignIn(email, password);
+            showMainApp();
+            await postLoginInit();
+            showToast("Signed in (local)");
+          } catch (e2) {
+            throw e2;
+          }
         } else {
           await orig?.(e);
         }
@@ -2985,6 +3002,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   initSendQueue();
   window.addEventListener("online", flushSendQueue);
   initReminderWatcher();
+  await waitForSupabaseClient(3500);
   purgeStaleSupabaseSessions();
   await bootstrapSupabase();
   attemptAuthBootstrap();
