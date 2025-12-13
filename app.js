@@ -2944,8 +2944,12 @@ async function openShareJoinCode() {
     codeView.textContent = fam?.join_code || "No code yet";
     const actions = el("div"); actions.style.display = "flex"; actions.style.gap = "8px";
     const gen = el("button", "primary-btn"); gen.textContent = "Generate/Rotate Code";
+    const copyCode = el("button", "icon-btn"); copyCode.textContent = "Copy Code";
     const copy = el("button", "icon-btn"); copy.textContent = "Copy Link";
-    actions.append(gen, copy);
+    const hasCode = !!fam?.join_code;
+    copy.disabled = !hasCode;
+    copyCode.disabled = !hasCode;
+    actions.append(gen, copyCode, copy);
     box.append(codeView, actions);
     content.append(box);
     gen.onclick = async () => {
@@ -2961,14 +2965,23 @@ async function openShareJoinCode() {
         const idx = state.families.findIndex((f) => f.id === state.familyId);
         if (idx >= 0) state.families[idx] = data;
         codeView.textContent = data.join_code;
+        copy.disabled = false;
+        copyCode.disabled = false;
         showToast("Join code updated");
       } catch {
         showToast("Failed to update code");
       }
     };
+    copyCode.onclick = async () => {
+      const code = codeView.textContent || "";
+      if (!code || code === "No code yet") { showToast("Generate a code first"); return; }
+      try { await navigator.clipboard.writeText(code); showToast("Code copied"); } catch { showToast("Copy failed"); }
+    };
     copy.onclick = async () => {
       const base = location.origin + location.pathname;
-      const link = `${base}?join=${encodeURIComponent(codeView.textContent || "")}`;
+      const code = codeView.textContent || "";
+      if (!code || code === "No code yet") { showToast("Generate a code first"); return; }
+      const link = `${base}?join=${encodeURIComponent(code)}`;
       try { await navigator.clipboard.writeText(link); showToast("Link copied"); } catch { showToast("Copy failed"); }
     };
   }, true);
