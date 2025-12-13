@@ -588,6 +588,10 @@ function updateOwnerControls() {
   const reviewBtn = qs("#btnReviewRequests");
   if (shareBtn) shareBtn.disabled = !isOwner;
   if (reviewBtn) reviewBtn.disabled = !isOwner;
+  const createBookBtn = qs("#btnCreateBook");
+  const createActivityBtn = qs("#btnCreateActivity");
+  if (createBookBtn) createBookBtn.disabled = !isOwner;
+  if (createActivityBtn) createActivityBtn.disabled = !isOwner;
 }
 
 /* =========================================
@@ -1045,11 +1049,16 @@ function renderNotesScreen() {
     const tagBtn = el("button", "icon-btn"); tagBtn.textContent = "Tags";
     tagBtn.onclick = (e) => { e.stopPropagation(); openEditTags("notes", note.id, note.title); };
     const actionsBar = el("div", "list-item-actions");
-    const editBtn = el("button", "icon-btn"); editBtn.textContent = "Edit";
-    const deleteBtn = el("button", "icon-btn"); deleteBtn.textContent = "Delete";
-    editBtn.onclick = (e) => { e.stopPropagation(); openNoteEditModal(note); };
-    deleteBtn.onclick = (e) => { e.stopPropagation(); deleteNote(note); };
-    actionsBar.append(editBtn, deleteBtn, tagBtn, pin);
+    const isMine = String(note.created_by || "") === String(state.user.id || "");
+    if (isMine) {
+      const editBtn = el("button", "icon-btn"); editBtn.textContent = "Edit";
+      const deleteBtn = el("button", "icon-btn"); deleteBtn.textContent = "Delete";
+      editBtn.onclick = (e) => { e.stopPropagation(); openNoteEditModal(note); };
+      deleteBtn.onclick = (e) => { e.stopPropagation(); deleteNote(note); };
+      actionsBar.append(editBtn, deleteBtn, tagBtn, pin);
+    } else {
+      actionsBar.append(tagBtn, pin);
+    }
     const tagsRow = el("div", "chip-row");
     const map = getTags("notes"); const arr = map.get(String(note.id)) || [];
     arr.forEach((t) => { const c = el("button", "chip"); c.textContent = t; tagsRow.appendChild(c); });
@@ -1060,15 +1069,17 @@ function renderNotesScreen() {
     item.addEventListener("touchend", () => {
       if (Math.abs(dx) > 40) {
         swiped = true;
-        if (dx < 0) {
-          actionsBar.innerHTML = "";
+        actionsBar.innerHTML = "";
+        if (dx < 0 && isMine) {
           const del = el("button", "primary-btn"); del.textContent = "Delete"; del.onclick = (e) => { e.stopPropagation(); deleteNote(note); };
           actionsBar.append(del);
-        } else {
-          actionsBar.innerHTML = "";
+        } else if (dx > 0 && isMine) {
           const edit = el("button", "primary-btn"); edit.textContent = "Edit"; edit.onclick = (e) => { e.stopPropagation(); openNoteEditModal(note); };
           const tags = el("button", "icon-btn"); tags.textContent = "Tags"; tags.onclick = (e) => { e.stopPropagation(); openEditTags("notes", note.id, note.title); };
           actionsBar.append(edit, tags);
+        } else {
+          const tags = el("button", "icon-btn"); tags.textContent = "Tags"; tags.onclick = (e) => { e.stopPropagation(); openEditTags("notes", note.id, note.title); };
+          actionsBar.append(tags);
         }
       }
     }, { passive: true });
@@ -1440,11 +1451,16 @@ function renderBooksScreen() {
     const tagBtn = el("button", "icon-btn"); tagBtn.textContent = "Tags";
     tagBtn.onclick = (e) => { e.stopPropagation(); openEditTags("books", book.id, book.title); };
     const actionsBar = el("div", "list-item-actions");
-    const editBtn = el("button", "icon-btn"); editBtn.textContent = "Edit";
-    const deleteBtn = el("button", "icon-btn"); deleteBtn.textContent = "Delete";
-    editBtn.onclick = (e) => { e.stopPropagation(); openBookEditModal(book); };
-    deleteBtn.onclick = (e) => { e.stopPropagation(); deleteBook(book); };
-    actionsBar.append(editBtn, deleteBtn, tagBtn, pin);
+    const isOwner = state.currentRole === "owner";
+    if (isOwner) {
+      const editBtn = el("button", "icon-btn"); editBtn.textContent = "Edit";
+      const deleteBtn = el("button", "icon-btn"); deleteBtn.textContent = "Delete";
+      editBtn.onclick = (e) => { e.stopPropagation(); openBookEditModal(book); };
+      deleteBtn.onclick = (e) => { e.stopPropagation(); deleteBook(book); };
+      actionsBar.append(editBtn, deleteBtn, tagBtn, pin);
+    } else {
+      actionsBar.append(tagBtn, pin);
+    }
     const tagsRow = el("div", "chip-row");
     const map = getTags("books"); const arr = map.get(String(book.id)) || [];
     arr.forEach((t) => { const c = el("button", "chip"); c.textContent = t; tagsRow.appendChild(c); });
@@ -1454,15 +1470,17 @@ function renderBooksScreen() {
     item.addEventListener("touchmove", (ev) => { dx = ev.touches[0].clientX - startX; }, { passive: true });
     item.addEventListener("touchend", () => {
       if (Math.abs(dx) > 40) {
-        if (dx < 0) {
-          actionsBar.innerHTML = "";
+        actionsBar.innerHTML = "";
+        if (dx < 0 && isOwner) {
           const del = el("button", "primary-btn"); del.textContent = "Delete"; del.onclick = (e) => { e.stopPropagation(); deleteBook(book); };
           actionsBar.append(del);
-        } else {
-          actionsBar.innerHTML = "";
+        } else if (dx > 0 && isOwner) {
           const edit = el("button", "primary-btn"); edit.textContent = "Edit"; edit.onclick = (e) => { e.stopPropagation(); openBookEditModal(book); };
           const tags = el("button", "icon-btn"); tags.textContent = "Tags"; tags.onclick = (e) => { e.stopPropagation(); openEditTags("books", book.id, book.title); };
           actionsBar.append(edit, tags);
+        } else {
+          const tags = el("button", "icon-btn"); tags.textContent = "Tags"; tags.onclick = (e) => { e.stopPropagation(); openEditTags("books", book.id, book.title); };
+          actionsBar.append(tags);
         }
       }
     }, { passive: true });
@@ -1709,11 +1727,16 @@ function renderActivitiesScreen() {
     const tagBtn = el("button", "icon-btn"); tagBtn.textContent = "Tags";
     tagBtn.onclick = (e) => { e.stopPropagation(); openEditTags("activities", a.id, a.title); };
     const actionsBar = el("div", "list-item-actions");
-    const editBtn = el("button", "icon-btn"); editBtn.textContent = "Edit";
-    const deleteBtn = el("button", "icon-btn"); deleteBtn.textContent = "Delete";
-    editBtn.onclick = (e) => { e.stopPropagation(); openActivityEditModal(a); };
-    deleteBtn.onclick = (e) => { e.stopPropagation(); deleteActivity(a); };
-    actionsBar.append(editBtn, deleteBtn, tagBtn, pin);
+    const isOwner = state.currentRole === "owner";
+    if (isOwner) {
+      const editBtn = el("button", "icon-btn"); editBtn.textContent = "Edit";
+      const deleteBtn = el("button", "icon-btn"); deleteBtn.textContent = "Delete";
+      editBtn.onclick = (e) => { e.stopPropagation(); openActivityEditModal(a); };
+      deleteBtn.onclick = (e) => { e.stopPropagation(); deleteActivity(a); };
+      actionsBar.append(editBtn, deleteBtn, tagBtn, pin);
+    } else {
+      actionsBar.append(tagBtn, pin);
+    }
     const tagsRow = el("div", "chip-row");
     const map = getTags("activities"); const arr = map.get(String(a.id)) || [];
     arr.forEach((t) => { const c = el("button", "chip"); c.textContent = t; tagsRow.appendChild(c); });
@@ -1723,15 +1746,17 @@ function renderActivitiesScreen() {
     item.addEventListener("touchmove", (ev) => { dx = ev.touches[0].clientX - startX; }, { passive: true });
     item.addEventListener("touchend", () => {
       if (Math.abs(dx) > 40) {
-        if (dx < 0) {
-          actionsBar.innerHTML = "";
+        actionsBar.innerHTML = "";
+        if (dx < 0 && isOwner) {
           const del = el("button", "primary-btn"); del.textContent = "Delete"; del.onclick = (e) => { e.stopPropagation(); deleteActivity(a); };
           actionsBar.append(del);
-        } else {
-          actionsBar.innerHTML = "";
+        } else if (dx > 0 && isOwner) {
           const edit = el("button", "primary-btn"); edit.textContent = "Edit"; edit.onclick = (e) => { e.stopPropagation(); openActivityEditModal(a); };
           const tags = el("button", "icon-btn"); tags.textContent = "Tags"; tags.onclick = (e) => { e.stopPropagation(); openEditTags("activities", a.id, a.title); };
           actionsBar.append(edit, tags);
+        } else {
+          const tags = el("button", "icon-btn"); tags.textContent = "Tags"; tags.onclick = (e) => { e.stopPropagation(); openEditTags("activities", a.id, a.title); };
+          actionsBar.append(tags);
         }
       }
     }, { passive: true });
@@ -3447,18 +3472,14 @@ async function joinFamilyByCode(code) {
       .eq("join_code", code)
       .single();
     if (error || !fam) { showToast("Invalid code"); return false; }
-    const { error: reqErr } = await state.supabase
-      .from("family_access_requests")
-      .insert({
-        family_id: fam.id,
-        requester_id: state.user.id,
-        requester_email: state.user.email,
-        requester_name: state.user.user_metadata?.full_name || state.user.email,
-        code,
-        status: "pending",
-      });
-    if (reqErr) { showToast("Request failed"); return false; }
-    showToast("Request sent to owner");
+    const { error: memErr } = await state.supabase
+      .from("family_members")
+      .insert({ family_id: fam.id, user_id: state.user.id, role: "member" });
+    if (memErr) { showToast("Join failed"); return false; }
+    state.familyId = fam.id;
+    await loadMembershipRole();
+    await loadAllData();
+    showToast(`Joined ${fam.name}`);
     return true;
   } catch {
     showToast("Join failed");
