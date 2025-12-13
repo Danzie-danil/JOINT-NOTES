@@ -93,13 +93,14 @@ body.compact-mode #app { max-width: 420px; margin: 0 auto; border-left: 1px soli
 .screens {
   flex: 1;
   position: relative;
-  padding-bottom: calc(64px + env(safe-area-inset-bottom));
+  padding-bottom: calc(80px + env(safe-area-inset-bottom));
 }
 .screen {
   position: absolute;
   inset: 0;
   overflow: auto;
   padding: 12px;
+  padding-bottom: calc(96px + env(safe-area-inset-bottom));
   opacity: 0;
   transform: translateY(8px);
   transition: opacity 180ms ease, transform 180ms ease;
@@ -308,15 +309,22 @@ body.compact-mode #app { max-width: 420px; margin: 0 auto; border-left: 1px soli
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 8px;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
 }
 .toolbar {
   display: flex;
   gap: 6px;
   margin-bottom: 6px;
   flex-wrap: wrap;
+  position: sticky;
+  top: 0;
+  background: var(--card);
+  z-index: 5;
+  padding: 6px 4px;
 }
 .editor-input {
-  min-height: 80px;
+  min-height: clamp(180px, 40vh, 600px);
   outline: none;
   padding: 8px;
   border-radius: var(--radius);
@@ -328,6 +336,16 @@ body.compact-mode #app { max-width: 420px; margin: 0 auto; border-left: 1px soli
   grid-template-columns: 1fr auto;
   margin-top: 8px;
   gap: 8px;
+}
+.hidden-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  border: 0;
 }
 
 .bottom-tabs {
@@ -458,8 +476,9 @@ body.compact-mode #app { max-width: 420px; margin: 0 auto; border-left: 1px soli
   width: 100%;
 }
 .seg-btn.seg-btn--active {
-  background: color-mix(in oklab, var(--accent), black 85%);
-  border-color: color-mix(in oklab, var(--accent), black 75%);
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
 }
 .auth-form.hidden { display: none; }
 .auth-title { font-weight: 800; font-size: 20px; margin-bottom: 4px; text-align: center; }

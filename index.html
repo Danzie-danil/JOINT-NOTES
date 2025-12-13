@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <meta name="theme-color" content="#000000" />
+    <meta name="theme-color" content="#ffffff" />
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="apple-touch-icon" href="Joint Notes logo.png" />
     <link rel="icon" type="image/png" href="Joint Notes logo.png" />
@@ -12,7 +12,7 @@
     <title>Joint Notes</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
-  <body class="theme-dark">
+  <body class="theme-light">
     <div id="app" class="app">
       <header class="app-header">
         <button id="btnDrawer" aria-label="Open menu" class="icon-btn">☰</button>
@@ -133,7 +133,8 @@
               </div>
               <div id="editorInput" class="editor-input" contenteditable="true" aria-label="Write a new paragraph"></div>
               <div class="editor-actions">
-                <input id="noteFileInput" type="file" accept="image/*,.pdf,.doc,.docx" />
+                <input id="noteFileInput" type="file" accept="image/*,.pdf,.doc,.docx" class="hidden-file-input" />
+                <button id="btnAttachFile" class="icon-btn">Attach</button>
                 <button id="btnSaveParagraph" class="primary-btn">Save Paragraph</button>
               </div>
             </div>

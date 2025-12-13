@@ -263,6 +263,26 @@ function getSupabaseConfig() {
   if (!raw) return null;
   try { return JSON.parse(raw); } catch { return null; }
 }
+function extractProjectRef(url) {
+  try {
+    const u = new URL(url);
+    const host = u.hostname;
+    const parts = host.split(".");
+    return parts[0] || "";
+  } catch { return ""; }
+}
+function purgeStaleSupabaseSessions() {
+  const cfg = getSupabaseConfig();
+  const ref = cfg ? extractProjectRef(cfg.url) : "";
+  try {
+    const keys = Object.keys(localStorage);
+    keys.forEach((k) => {
+      if (k.startsWith("sb-") && (!ref || !k.includes(ref))) {
+        try { localStorage.removeItem(k); } catch {}
+      }
+    });
+  } catch {}
+}
 function ensureSupabaseConfigured() {
   const cfg = getSupabaseConfig();
   if (cfg && cfg.url && cfg.anon) {
@@ -1130,6 +1150,7 @@ async function openNoteDetail(note, opts = {}) {
   });
   subscribeNotePresence(note.id);
   const nf = qs("#noteFileInput");
+  const attachBtn = qs("#btnAttachFile");
   if (nf) {
     nf.onchange = async () => {
       if (!nf.files || !nf.files[0]) return;
@@ -1137,6 +1158,9 @@ async function openNoteDetail(note, opts = {}) {
       await uploadNoteAttachment(note.id, file);
       nf.value = "";
     };
+  }
+  if (attachBtn && nf) {
+    attachBtn.onclick = () => nf.click();
   }
 }
 async function loadParagraphs(noteId) {
@@ -2323,6 +2347,7 @@ function bindUI() {
     const btn = qs("#btnSignIn");
     btn.disabled = true;
     try {
+      purgeStaleSupabaseSessions();
       const { error } = await state.supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
       showToast("Signed in");
@@ -2554,6 +2579,19 @@ function bindUI() {
   qs("#btnSendMessage").onclick = sendMessage;
   // Sync
   qs("#btnSync").onclick = doRefresh;
+  let lastVisibleReload = 0;
+  document.addEventListener("visibilitychange", async () => {
+    if (document.visibilityState === "visible" && state.user && state.supabase) {
+      const now = Date.now();
+      if (now - lastVisibleReload > 60000) {
+        lastVisibleReload = now;
+        try {
+          await ensureFamilyContext();
+          await loadAllData();
+        } catch {}
+      }
+    }
+  });
   // Search
   const ns = qs("#notesSearchInput");
   if (ns) ns.oninput = async () => {
@@ -2847,7 +2885,7 @@ function bindPullToRefresh() {
    Bootstrap
 ========================================= */
 document.addEventListener("DOMContentLoaded", async () => {
-  applyTheme(localStorage.getItem(STORAGE_KEYS.theme) || "dark");
+  applyTheme(localStorage.getItem(STORAGE_KEYS.theme) || "light");
   bindUI();
   registerServiceWorker();
   window.addEventListener("online", () => { state.online = true; setOfflineBanner(false); });
@@ -2859,6 +2897,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   initSendQueue();
   window.addEventListener("online", flushSendQueue);
   initReminderWatcher();
+  purgeStaleSupabaseSessions();
   await bootstrapSupabase();
   attemptAuthBootstrap();
   checkJoinLink();
