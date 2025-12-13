@@ -2065,7 +2065,23 @@ function bindUI() {
   qs("#btnExport").onclick = () => { exportProfileData(); closeDrawer(); };
   qs("#btnRefresh").onclick = () => { doRefresh(); closeDrawer(); };
   qs("#btnHelp").onclick = () => {
-    alert("Joint Notes\nCollaborative notes, books, activities, and chat.\nBuilt with Supabase.");
+    openOverlay("Help / About", (content) => {
+      const card = el("div", "list-item");
+      const title = el("div", "detail-title"); title.textContent = "Mobile Testing Guide";
+      const steps = el("div", "list");
+      const s1 = el("div", "list-item"); s1.textContent = "Open DevTools: F12 or Ctrl+Shift+I";
+      const s2 = el("div", "list-item"); s2.textContent = "Toggle Device Mode: Ctrl+Shift+M";
+      const s3 = el("div", "list-item"); s3.textContent = "Pick a device: iPhone 14 Pro / Pixel 7";
+      const s4 = el("div", "list-item"); s4.textContent = "Rotate the device and test long titles";
+      const s5 = el("div", "list-item"); s5.textContent = "Use Network throttling to simulate 3G";
+      steps.append(s1, s2, s3, s4, s5);
+      const card2 = el("div", "list-item");
+      const t2 = el("div", "detail-title"); t2.textContent = "Compact Mode (In-App)";
+      const p2 = el("div", "preview"); p2.textContent = "Use Drawer → Toggle Compact Mode to emulate a narrow viewport quickly.";
+      card.append(title, steps);
+      card2.append(t2, p2);
+      content.append(card, card2);
+    }, true);
     closeDrawer();
   };
   qs("#btnSupabaseConfig").onclick = () => { showSupabaseConfigModal(); closeDrawer(); };
@@ -2085,6 +2101,8 @@ function bindUI() {
     setAuthMode(state.authMode === "member" ? "manager" : "member");
     closeDrawer();
   };
+  const compactBtn = qs("#btnCompactMode");
+  if (compactBtn) compactBtn.onclick = () => { document.body.classList.toggle("compact-mode"); closeDrawer(); };
   const logoutBtn = qs("#btnLogout");
   if (logoutBtn) logoutBtn.onclick = async () => { await doLogout(); closeDrawer(); };
   // Auth

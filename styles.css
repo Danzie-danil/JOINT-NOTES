@@ -34,6 +34,7 @@ body {
   color: var(--text);
   touch-action: manipulation;
 }
+html { -webkit-text-size-adjust: 100%; }
 
 .app {
   min-height: 100vh;
@@ -41,6 +42,7 @@ body {
   flex-direction: column;
   background: var(--bg);
 }
+body.compact-mode #app { max-width: 420px; margin: 0 auto; border-left: 1px solid var(--border); border-right: 1px solid var(--border); }
 
 .app-header {
   position: sticky;
@@ -72,6 +74,7 @@ body {
   position: relative;
   overflow: hidden;
 }
+.icon-btn, .primary-btn, .text-btn { display: inline-flex; align-items: center; justify-content: center; max-width: 100%; min-width: 0; }
 .text-btn {
   background: transparent;
   color: var(--accent);
@@ -108,6 +111,7 @@ body {
   gap: 8px;
   margin-bottom: 12px;
 }
+.screen-toolbar > * { min-width: 0; }
 .screen.screen--active {
   opacity: 1;
   transform: translateY(0);
@@ -140,6 +144,7 @@ body {
   color: var(--muted);
   margin-top: 6px;
 }
+.list-item .title, .list-item .meta, .list-item .preview { overflow-wrap: anywhere; word-break: break-word; }
 
 .detail .detail-header {
   display: flex;
@@ -310,6 +315,7 @@ body {
   border-radius: var(--radius);
   border: 1px dashed var(--border);
 }
+.editor-input { overflow-wrap: anywhere; word-break: break-word; }
 .editor-actions {
   display: flex;
   justify-content: flex-end;
@@ -412,6 +418,7 @@ body {
   position: relative;
   overflow: hidden;
 }
+.drawer-item { overflow-wrap: anywhere; word-break: break-word; }
 .drawer-item + .drawer-item { margin-top: 8px; }
 .drawer-item[disabled] {
   opacity: 0.5;
@@ -479,6 +486,7 @@ body {
   background: var(--card);
   position: relative;
 }
+.bubble { overflow-wrap: anywhere; word-break: break-word; }
 .bubble.me {
   justify-self: end;
   background: color-mix(in oklab, var(--accent), black 65%);
@@ -595,4 +603,19 @@ button, input, select, textarea {
     grid-template-columns: repeat(2, 1fr);
   }
   .messages { max-width: 680px; margin: 0 auto; }
+}
+@media (max-width: 640px) {
+  .app-header { padding: 10px 12px; }
+  .header-title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .screen-toolbar { flex-wrap: wrap; }
+  .search-input { width: 100%; flex: 1 1 100%; }
+  .badge { display: none; }
+  .list { gap: 10px; }
+  .list-item { padding: 10px; }
+  .tab-label { font-size: 12px; }
+}
+@media (max-width: 480px) {
+  .chip { font-size: 11px; padding: 3px 7px; }
+  .tab-label { font-size: 11px; }
+  .modal-content { width: min(96vw, 520px); }
 }
