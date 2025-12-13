@@ -647,14 +647,22 @@ async function loadBooks(opts = {}) {
     let query = state.supabase
       .from("books")
       .select("id,title,description,family_id,created_at")
-      .eq("family_id", state.familyId)
       .order("id", { ascending: false })
       .range(offset, offset + p.pageSize - 1);
     if (p.term) {
       const t = `%${p.term}%`;
       query = query.or(`ilike(title,${t}),ilike(description,${t})`);
     }
-    const { data, error } = await query;
+    let { data, error } = await query.eq("family_id", state.familyId);
+    if (error && String(error.code || "").includes("42703")) {
+      const res = await state.supabase
+        .from("books")
+        .select("id,title,description,created_at")
+        .order("id", { ascending: false })
+        .range(offset, offset + p.pageSize - 1);
+      data = res.data || [];
+      error = res.error || null;
+    }
     if (error) throw error;
     return data;
   }, STORAGE_KEYS.cacheBooks(state.familyId));
@@ -676,14 +684,22 @@ async function loadNotes(opts = {}) {
     let query = state.supabase
       .from("notes")
       .select("id,title,book_id,family_id,created_at,created_by")
-      .eq("family_id", state.familyId)
       .order("created_at", { ascending: false })
       .range(offset, offset + p.pageSize - 1);
     if (p.term) {
       const t = `%${p.term}%`;
       query = query.ilike("title", t);
     }
-    const { data, error } = await query;
+    let { data, error } = await query.eq("family_id", state.familyId);
+    if (error && String(error.code || "").includes("42703")) {
+      const res = await state.supabase
+        .from("notes")
+        .select("id,title,book_id,created_at,created_by")
+        .order("created_at", { ascending: false })
+        .range(offset, offset + p.pageSize - 1);
+      data = res.data || [];
+      error = res.error || null;
+    }
     if (error) throw error;
     return data;
   }, STORAGE_KEYS.cacheNotes(state.familyId));
@@ -705,14 +721,22 @@ async function loadActivities(opts = {}) {
     let query = state.supabase
       .from("activities")
       .select("id,title,description,datetime,location,family_id,created_at")
-      .eq("family_id", state.familyId)
       .order("datetime", { ascending: false })
       .range(offset, offset + p.pageSize - 1);
     if (p.term) {
       const t = `%${p.term}%`;
       query = query.or(`ilike(title,${t}),ilike(description,${t}),ilike(location,${t})`);
     }
-    const { data, error } = await query;
+    let { data, error } = await query.eq("family_id", state.familyId);
+    if (error && String(error.code || "").includes("42703")) {
+      const res = await state.supabase
+        .from("activities")
+        .select("id,title,description,datetime,location,created_at")
+        .order("datetime", { ascending: false })
+        .range(offset, offset + p.pageSize - 1);
+      data = res.data || [];
+      error = res.error || null;
+    }
     if (error) throw error;
     return data;
   }, STORAGE_KEYS.cacheActivities(state.familyId));
